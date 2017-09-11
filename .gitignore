@@ -26,3 +26,6 @@
 *.exe
 *.out
 *.app
+
+# The build folder
+./build/
