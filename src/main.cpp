@@ -39,6 +39,7 @@ double distance(double x1, double y1, double x2, double y2)
 {
 	return sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1));
 }
+
 int ClosestWaypoint(double x, double y, vector<double> maps_x, vector<double> maps_y)
 {
 
@@ -160,6 +161,56 @@ vector<double> getXY(double s, double d, vector<double> maps_s, vector<double> m
 
 }
 
+vector<double> get_frenet_velocity_vxvy(double x, double y, double vx, double vy, vector<double> maps_x, vector<double> maps_y)
+{
+  double car_heading  = atan2(vy, vx);
+
+  int next_wp = NextWaypoint(x,y, car_heading, maps_x,maps_y);
+
+  int prev_wp;
+  prev_wp = next_wp-1;
+  if(next_wp == 0)
+  {
+    prev_wp  = maps_x.size()-1;
+  }
+
+  double lane_heading = atan2(maps_y[next_wp] - maps_y[prev_wp], maps_x[next_wp] - maps_x[prev_wp]);
+
+  double delta_theta = car_heading - lane_heading;
+
+  double norm_v = sqrt(pow(vx, 2) + pow(vy, 2));
+
+  double v_s = norm_v * cos(delta_theta);
+  double v_d = norm_v * sin(delta_theta);
+
+  return {v_s, v_d};
+}
+
+vector<double> get_frenet_velocity_theta(double x, double y, double theta, double speed, vector<double> maps_x, vector<double> maps_y)
+{
+  double car_heading  = theta;
+
+  int next_wp = NextWaypoint(x,y, car_heading, maps_x,maps_y);
+
+  int prev_wp;
+  prev_wp = next_wp-1;
+  if(next_wp == 0)
+  {
+    prev_wp  = maps_x.size()-1;
+  }
+
+  double lane_heading = atan2(maps_y[next_wp] - maps_y[prev_wp], maps_x[next_wp] - maps_x[prev_wp]);
+
+  double delta_theta = car_heading - lane_heading;
+
+  double norm_v = speed;
+
+  double v_s = norm_v * cos(delta_theta);
+  double v_d = norm_v * sin(delta_theta);
+
+  return {v_s, v_d};
+}
+
 int main() {
   uWS::Hub h;
 
@@ -197,13 +248,17 @@ int main() {
   	map_waypoints_dy.push_back(d_y);
   }
 
-  // Define the lane we want to be in. The left-most lane is lane 0, the right-most lane is lane 2
+  // Define the lane we want to be in. The left-most lane is lane 0, the right-most lane is lane 2.
   int lane = 1;
 
-  // Set the reference velocity that we want the car to keep
+  // Set the reference velocity that we want the car to keep.
   double ref_vel = 0.0;
 
-  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy, &ref_vel, &lane](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
+  // Set the planning horizon in seconds.
+  // This is the length of the planned path for the ego car and the length of the predicted paths for the other cars on the road.
+  double planning_horizon = 1.0;
+
+  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,&map_waypoints_dx,&map_waypoints_dy, &ref_vel, &lane, &planning_horizon](uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                      uWS::OpCode opCode) {
     // "42" at the start of the message means there's a websocket message event.
     // The 4 signifies a websocket message
@@ -238,6 +293,14 @@ int main() {
           	double end_path_d = j[1]["end_path_d"];
 
           	// Sensor Fusion Data, a list of all other cars on the same side of the road.
+          	// A 2-dimensional vector of shape (N, 7) where each entry represents a car by seven coordinates:
+          	// [car's unique ID,
+          	//  car's x position in map coordinates,
+          	//  car's y position in map coordinates,
+          	//  car's x velocity in m/s,
+          	//  car's y velocity in m/s,
+          	//  car's s position in Frenet coordinates,
+          	//  car's d position in Frenet coordinates]
           	auto sensor_fusion = j[1]["sensor_fusion"];
 
           	int prev_size = previous_path_x.size();
@@ -253,11 +316,13 @@ int main() {
           	bool too_close = false; // Indicator to register whether we need to deviate from our standard driving policy to just follow the current lane at constant speed
 
           	// Determine the reference velocity for the ego car
-          	for (int i = 0; i < sensor_fusion.size(); i++) { // For each car around the ego car...
+          	for (int i = 0; i < sensor_fusion.size(); i++)
+          	{ // For each car around the ego car...
 
           	  double other_car_d = sensor_fusion[i][6]; // ...get the d-coordinate...
 
-          	  if (other_car_d > (car_d - 3) && other_car_d < (car_d + 3)) { // ...and if the other car is (nearly) in the same lane as the ego car,...
+          	  if (other_car_d > (car_d - 3) && other_car_d < (car_d + 3))
+          	  { // ...and if the other car is (nearly) in the same lane as the ego car,...
 
           	    // ...compute where the other car will be by the time we reach the end of the current path,
           	    // so that we can compute whether or not a collision would occur if we followed our current path.
@@ -267,13 +332,53 @@ int main() {
           	    double other_car_s = sensor_fusion[i][5];
           	    double other_car_s_future = other_car_s + other_car_v * 0.02 * (double) prev_size; // Predict the car's future position using its velocity
 
-          	    if (other_car_s_future > car_s && (other_car_s_future - car_s) < 30) { // If the other car is in front of our car AND too close...
+          	    if (other_car_s_future > car_s && (other_car_s_future - car_s) < 30)
+          	    { // If the other car is in front of our car AND too close...
 
           	      too_close = true; // ...set the indicator to indicate that we need to act.
 
           	    }
           	  }
           	}
+
+          	// For each non-ego car, generate a trajectory under the assumption that the car always keeps its lane, i.e. that it cannot change lanes
+          	  // We need no `else` case, because cars cannot go off-road in this simulator, so no car will have a d value larger than 12.
+
+          	  /* We need no spline as long as we only assume cars always keep their lane.
+          	  // Generate a spline between the car's current and future position.
+          	  vector<double> other_car_xy = getXY(other_car_s, other_car_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+          	  vector<double> other_car_xy_aux0 = getXY(other_car_s_aux0, other_car_d, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+          	  vector<double> other_car_xy_aux1 = getXY(other_car_s_aux1, other_car_d_future, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+          	  vector<double> other_car_xy_future = getXY(other_car_s_future, other_car_d_future, map_waypoints_s, map_waypoints_x, map_waypoints_y);
+
+          	  // Vectors to hold the spline end points
+          	  vector<double> other_car_spline_pts_x;
+          	  vector<double> other_car_spline_pts_y;
+          	  other_car_spline_pts_x.push_back(other_car_xy[0]);
+          	  other_car_spline_pts_x.push_back(other_car_xy_aux0[0]);
+          	  other_car_spline_pts_x.push_back(other_car_xy_aux1[0]);
+          	  other_car_spline_pts_x.push_back(other_car_xy_future[0]);
+          	  other_car_spline_pts_y.push_back(other_car_xy[1]);
+              other_car_spline_pts_y.push_back(other_car_xy_aux0[1]);
+              other_car_spline_pts_y.push_back(other_car_xy_aux1[1]);
+              other_car_spline_pts_y.push_back(other_car_xy_future[1]);
+
+              // Transform the spline end points into the other car's local coordinate system.
+              for (int i = 0; i < other_car_spline_pts_x.size(); i++)
+              {
+                double shifted_x = other_car_spline_pts_x[i] - other_car_x;
+                double shifted_y = other_car_spline_pts_y[i] - other_car_y;
+
+                other_car_spline_pts_x[i] = shifted_x * cos(0 - other_car_yaw) - shifted_y * sin(0 - other_car_yaw);
+                other_car_spline_pts_y[i] = shifted_x * sin(0 - other_car_yaw) + shifted_y * cos(0 - other_car_yaw);
+              }
+
+              // Declare the spline
+              tk::spline other_car_spline;
+
+              // Set the end points for the spline
+              other_car_spline.set_points(other_car_spline_pts_x, other_car_spline_pts_y);
+              */
 
           	// Create lists to store the spline end points, i.e. the points between which we want the splines to interpolate
           	vector<double> spline_points_x;
@@ -325,14 +430,13 @@ int main() {
             spline_points_y.push_back(spline_point_5[1]);
 
             // Transform the spline points into the car's local coordinate system
-            for (int i = 0; i < spline_points_x.size(); i++) {
-
+            for (int i = 0; i < spline_points_x.size(); i++)
+            {
               double shifted_x = spline_points_x[i] - ref_x;
               double shifted_y = spline_points_y[i] - ref_y;
 
               spline_points_x[i] = shifted_x * cos(0 - ref_yaw) - shifted_y * sin(0 - ref_yaw);
               spline_points_y[i] = shifted_x * sin(0 - ref_yaw) + shifted_y * cos(0 - ref_yaw);
-
             }
 
             // Declare the spline
@@ -365,7 +469,7 @@ int main() {
             double x_offset = 0; // An offset for the loop below
 
             // We're filling up as many missing path points such that we always have 50 path points for the new path
-            for (int i = 1; i <= 50 - prev_size; i++) {
+            for (int i = 1; i <= planning_horizon / 0.02 - prev_size; i++) {
 
               if (too_close) { // If we're getting too close to the car in front of us...
                 ref_vel -= 0.224; // ...reduce the speed by 0.224 m/s per 20 ms,...
