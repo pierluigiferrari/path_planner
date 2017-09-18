@@ -5,104 +5,198 @@
  *      Author: pierluigiferrari
  */
 
-#include <iostream>
-#include <fstream>
-#include <cmath>
+#include <math.h>
 #include <vector>
-
-#include "Dense"
+#include "spline.h"
+#include "trajectory_generator.h"
+#include "helper_functions.h"
 
 using namespace std;
-using Eigen::MatrixXd;
-using Eigen::VectorXd;
 
-/*
- * Computes the jerk-minimal trajectory that connects the initial state to the
- * final state in time T.
- *
- * @param start The initial state, a 3-tuple consisting of a state-describing
- *              coordinate and its first and second time derivatives.
- * @param end The desired final state, a 3-tuple consisting of a state-describing
- *            coordinate and its first and second time derivatives.
- * @param T The time in seconds allowed for the transition from the start state
- *          to the end state.
- *
- * @returns A vector containing six coefficients for a 6th-degree polynomial
- *          that constitutes the jerk-minimizing trajectory from the start state
- *          to the end state. The coefficients for a polynomial
- *
- *          x(t) = a_0 + a_1 * t + a_2 * t**2 + a_3 * t**3 + a_4 * t**4 + a_5 * t**5
- *
- *          will be returned in the order [a_0, a_1, ..., a_5].
- */
-vector<double> jerk_minimizing_trajectory(vector<double> start, vector <double> end, double T) {
-    /*
-     * The jerk-minimal trajectory will be a fifth-degree polynomial
-     * (understand why: http://www.shadmehrlab.org/book/minimum_jerk/minimumjerk.htm)
-     *
-     * x(t) = a_0 + a_1 * t + a_2 * t**2 + a_3 * t**3 + a_4 * t**4 + a_5 * t**5
-     *
-     * with first and second derivatives
-     *
-     * x'(t) = a_1 + 2 * a_2 * t + 3 * a_3 * t**2 + 4  * a_4 * t**3 +  5 * a_5 * t**4
-     * x"(t) =       2 * a_2     + 6 * a_3 * t    + 12 * a_4 * t**2 + 20 * a_5 * t**3
-     *
-     * We are trying to find the polynomial's six coefficients [a_0, a_1, ..., a_5]
-     * given six boundary conditions.
-     *
-     * Let x(0), x'(0), x"(0) be the boundary conditions at time t = 0 and
-     * let x(T), x'(T), x"(T) be the boundary conditions at time t = T.
-     *
-     * Then plugging in t = 0 above immediately yields
-     *
-     * a_0 =       x (0)
-     * a_1 =       x'(0)
-     * a_2 = 0.5 * x"(0)
-     *
-     * In order to get the remaining three coefficients, we need to solve the
-     * linear system
-     *
-     * A * x = b, where
-     *
-     *     /   T**3     T**4     T**5 \
-     * A = | 3*T**2   4*T**3   5*T**4 |
-     *     \ 6*T     12*T**2  20*T**3 /
-     *
-     *     / x (T) - (x (0) + x'(0) * T + 0.5 * x"(0) * T**2) \
-     * b = | x'(T) - (x'(0) + x"(0) * T)                      |
-     *     \ x"(T) -  x"(0)                                   /
-     *
-     *     / a_3 \
-     * x = | a_4 |
-     *     \ a_5 /
-     */
-
-    VectorXd x(3);
-    VectorXd b(3);
-    MatrixXd A(3,3);
-
-    // Store powers of T to avoid unnecessary computation.
-    double t2 = T * T;
-    double t3 = t2 * T;
-    double t4 = t2 * t2;
-    double t5 = t4 * T;
-
-    // Initialize A and b
-    b << end[0] - (start[0] + start[1] * T + 0.5 * start[2] * t2), end[1] - (start[1] + start[2] * T), end[2] - start[2];
-    A << t3  , t4   , t5   ,
-         3*t2, 4*t3 , 5*t4 ,
-         6*T , 12*t2, 20*t3;
-
-    // Solve for x
-    x = A.colPivHouseholderQr().solve(b);
-
-    vector<double> alphas(6);
-    alphas[0] = start[0];
-    alphas[1] = start[1];
-    alphas[2] = 0.5 * start[2];
-    alphas[3] = x(0);
-    alphas[4] = x(1);
-    alphas[5] = x(2);
-
-    return alphas;
+trajectory_generator::trajectory_generator(vector<double> map_waypoints_x,
+                                           vector<double> map_waypoints_y,
+                                           vector<double> map_waypoints_s)
+{
+  map_waypoints_x_ = map_waypoints_x;
+  map_waypoints_y_ = map_waypoints_y;
+  map_waypoints_s_ = map_waypoints_s;
 }
+
+trajectory_generator::~trajectory_generator() {}
+
+vector<vector<double>> trajectory_generator::generate_trajectory(int target_lane,
+                                                                 double target_velocity,
+                                                                 double time_to_reach_tl,
+                                                                 double time_to_reach_tv,
+                                                                 double planning_horizon,
+                                                                 bool full_path,
+                                                                 double car_x,
+                                                                 double car_y,
+                                                                 double car_s,
+                                                                 double car_d,
+                                                                 double car_yaw,
+                                                                 double car_speed,
+                                                                 vector<double> previous_path_x,
+                                                                 vector<double> previous_path_y)
+{
+  // Check how many path points we have left from the previous path.
+  int prev_size = previous_path_x.size();
+
+  // Create lists to store the spline end points, i.e. the points between which we want the splines to interpolate
+  vector<double> spline_points_x;
+  vector<double> spline_points_y;
+
+  // Keep track of the reference position, which is the position from which we are currently viewing the world
+  double ref_x = car_x;
+  double ref_y = car_y;
+  double ref_yaw = deg2rad(car_yaw);
+
+  // Cover the initialization state, i.e. the state in which we have less than 2 path points in our previous path.
+  if (prev_size < 2)
+  { // If we have fewer than 2 path points in our previous path...
+    // ...generate a pseudo-previous position by just going backwards from where the car is now...
+    double prev_car_x = car_x - cos(car_yaw);
+    double prev_car_y = car_y - sin(car_yaw);
+    // ...and use the car's current and the generated previous position to form a path that is tangential to the car's heading.
+    spline_points_x.push_back(prev_car_x);
+    spline_points_x.push_back(car_x);
+    spline_points_y.push_back(prev_car_y);
+    spline_points_y.push_back(car_y);
+  }
+  // Now cover the states in which we have a sufficiently long previous path.
+  else
+  { // Or else, if we have enough previous path points...
+    // ...make the last path point of the previous path the new reference position...
+    ref_x = previous_path_x[prev_size - 1];
+    ref_y = previous_path_y[prev_size - 1];
+    // ...and use the second-to-last path point to get the tangent to the car's heading at that position...
+    double prev_car_x = previous_path_x[prev_size - 2];
+    double prev_car_y = previous_path_y[prev_size - 2];
+    // ...and compute the reference yaw from these two points...
+    ref_yaw = atan2(ref_y - prev_car_y, ref_x - prev_car_x);
+    // ...and push the points onto the spline point list
+    spline_points_x.push_back(prev_car_x);
+    spline_points_x.push_back(ref_x);
+    spline_points_y.push_back(prev_car_y);
+    spline_points_y.push_back(ref_y);
+  }
+
+  // Add three additional spline end points that are spaced far apart.
+  // Assume that each lane is 4 meters wide.
+
+  // The average speed between the car's current speed and its target speed determines
+  // the s coordinate by which the transition from the current lane to the target lane
+  // must be completed.
+  double avg_speed = 0.5 * (car_speed + target_velocity);
+  // Compute the car's current lane.
+  int car_lane = (int) car_d / 4;
+
+  vector<double> spline_point_3 = get_xy(car_s + 0.5 * time_to_reach_tl * avg_speed, (2 + 4 * (double) car_lane), map_waypoints_s_, map_waypoints_x_, map_waypoints_y_);
+  vector<double> spline_point_4 = get_xy(car_s + time_to_reach_tl * avg_speed, (2 + 4 * (double) target_lane), map_waypoints_s_, map_waypoints_x_, map_waypoints_y_);
+  vector<double> spline_point_5 = get_xy(car_s + 2 * time_to_reach_tl * avg_speed, (2 + 4 * (double) target_lane), map_waypoints_s_, map_waypoints_x_, map_waypoints_y_);
+
+  spline_points_x.push_back(spline_point_3[0]);
+  spline_points_x.push_back(spline_point_4[0]);
+  spline_points_x.push_back(spline_point_5[0]);
+  spline_points_y.push_back(spline_point_3[1]);
+  spline_points_y.push_back(spline_point_4[1]);
+  spline_points_y.push_back(spline_point_5[1]);
+
+  // Transform the spline points into the car's local coordinate system
+  for (int i = 0; i < spline_points_x.size(); i++)
+  {
+    double shifted_x = spline_points_x[i] - ref_x;
+    double shifted_y = spline_points_y[i] - ref_y;
+
+    spline_points_x[i] = shifted_x * cos(0 - ref_yaw) - shifted_y * sin(0 - ref_yaw);
+    spline_points_y[i] = shifted_x * sin(0 - ref_yaw) + shifted_y * cos(0 - ref_yaw);
+  }
+
+  // Declare the spline
+  tk::spline spline;
+
+  // Set the end points for the spline
+  spline.set_points(spline_points_x, spline_points_y);
+
+  // Make a list for the actual path points we will generate from this spline
+  vector<double> next_x_vals;
+  vector<double> next_y_vals;
+  vector<double> next_v_vals; // Store velocity at each path point.
+  vector<double> next_a_vals; // Store acceleration at each path point.
+
+  // Determine how many path points to generate.
+  int num_new_path_points;
+  if (!full_path) // If we're just "filling up" the points of an existing previous path...
+  {
+    // ...add all remaining previous path points to the new path, if any,...
+    for (int i = 0; i < prev_size; i++)
+    {
+      next_x_vals.push_back(previous_path_x[i]);
+      next_y_vals.push_back(previous_path_y[i]);
+    }
+    // ...and set the number of path points to be generated accordingly.
+    num_new_path_points = planning_horizon / 0.02 - prev_size;
+  }
+  // Otherwise, generate a full path.
+  else num_new_path_points = planning_horizon / 0.02;
+
+  // Now, fill up the missing path points up to 50 with points generated from
+  // the spline.
+
+  // In order to that, compute how to subdivide the spline into points spaced
+  // such that the car maintains its reference velocity for a given stretch.
+  // We do this by linearizing the curvature of the spline, which is an alright
+  // approximation for short distances on a highway, but it's not an elegant solution.
+  double target_x = 30; // Remember, we're in the car's perspective right now
+  double target_y = spline(target_x);
+  double target_dist = sqrt(target_x * target_x + target_y * target_y);
+  double x_offset = 0; // An offset for the loop below
+
+  // Store the car's speed at the currently considered path planning point here
+  double ref_speed = car_speed;
+
+  // Compute the required acceleration to reach the target velocity in the required time,
+  // with the acceleration being bounded within [-10 m/s^2, +9 m/s^2].
+  double acceleration = (target_velocity - car_speed) / time_to_reach_tv;
+  acceleration = max(-10.0, min(9.0, acceleration));
+
+  // We're filling up as many missing path points such that we always have the required number of path points for the new path
+  // corresponding to the planning horizon at 50 path points per second.
+  for (int i = 0; i < num_new_path_points; i++)
+  {
+    // If necessary, accelerate or slow down between the last path point and this path point
+    if (fabs(ref_speed - target_velocity) > 0.2) // Allow a 0.2 m/s tolerance.
+    {
+      ref_speed += acceleration * 0.02;
+    }
+
+    if (full_path)
+    {
+      next_v_vals.push_back(ref_speed);
+      next_a_vals.push_back(acceleration);
+    }
+
+    // Compute the number of segments to subdivide the next 30-meter stretch of the spline into
+    double N = target_dist / (0.02 * ref_speed); // Car visits a new path point every 20 ms and dividing by 2.24 converts the reference velocity from mph to m/s.
+    double next_x = x_offset + target_x / N;
+    double next_y = spline(next_x);
+
+    x_offset = next_x;
+
+    // Transform the next point back from the car's local to the global coordinate system.
+    double temp_x = next_x;
+    double temp_y = next_y;
+    next_x = temp_x * cos(ref_yaw) - temp_y * sin(ref_yaw);
+    next_y = temp_x * sin(ref_yaw) + temp_y * cos(ref_yaw);
+
+    next_x += ref_x;
+    next_y += ref_y;
+
+    // Push this next path point onto the list
+    next_x_vals.push_back(next_x);
+    next_y_vals.push_back(next_y);
+  }
+
+  return {next_x_vals, next_y_vals, next_v_vals, next_a_vals};
+}
+
