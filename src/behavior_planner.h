@@ -32,10 +32,10 @@ public:
                    vector<double> map_waypoints_y,
                    vector<double> map_waypoints_s,
                    double planning_horizon = 1.0,
-                   double frontal_buffer = 3.0,
-                   double lateral_buffer = 30.0,
+                   double frontal_buffer = 30.0,
+                   double lateral_buffer = 3.0,
                    double speed_tolerance = 0.2,
-                   vector<double> cost_weights = {0.5, 0.5});
+                   vector<double> cost_weights = {0.4, 0.4, 0.2});
 
   /*
    * Destructor
@@ -50,6 +50,8 @@ public:
                                     double car_speed,
                                     vector<double> previous_path_x,
                                     vector<double> previous_path_y,
+                                    double end_path_s,
+                                    double end_path_d,
                                     vector<vector<double>> sensor_fusion);
 
   vector<vector<double>> generate_trajectory(string state);
@@ -68,6 +70,8 @@ public:
   double end_path_d_ = 0;
   // All other cars' localization data
   vector<vector<double>> sensor_fusion_;
+
+  int target_lane_ = 0; // The current target lane
 
 private:
 
@@ -89,6 +93,8 @@ private:
 
   double cost_speed_limit(const vector<vector<double>> &trajectory);
 
+  double cost_lane_change(int target_lane);
+
   int num_lanes_; // The number of lanes on the highway
   double speed_limit_; // The current speed limit
   double speed_tolerance_; // How much the ego car is allowed to deviate from the speed limit in meters per second
@@ -96,7 +102,7 @@ private:
   double frontal_buffer_; // The frontal safety buffer to be maintained to a leading car
   vector<double> cost_weights_; // The weights of the cost functions in the order of declaration
   string current_state_;
-  int target_lane_ = 0; // The current target lane
+  double cycle_ref_speed_; // The reference speed from the last cycle to the next
   double planning_horizon_; // How many seconds into the future the planner should plan ahead
   vector<double> map_waypoints_x_;
   vector<double> map_waypoints_y_;

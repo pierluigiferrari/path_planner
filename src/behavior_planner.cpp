@@ -5,6 +5,7 @@
  *      Author: pierluigiferrari
  */
 
+#include <iostream>
 #include <vector>
 #include <math.h>
 #include <numeric>
@@ -28,6 +29,7 @@ behavior_planner::behavior_planner(int num_lanes,
                                    vector<double> cost_weights)
 {
   current_state_ = "keep";
+  cycle_ref_speed_ = 0;
   planning_horizon_ = planning_horizon;
   frontal_buffer_ = frontal_buffer;
   lateral_buffer_ = lateral_buffer;
@@ -50,6 +52,8 @@ vector<vector<double>> behavior_planner::transition(double car_x,
                                                     double car_speed,
                                                     vector<double> previous_path_x,
                                                     vector<double> previous_path_y,
+                                                    double end_path_s,
+                                                    double end_path_d,
                                                     vector<vector<double>> sensor_fusion)
 {
   car_x_ = car_x;
@@ -60,6 +64,8 @@ vector<vector<double>> behavior_planner::transition(double car_x,
   car_speed_ = car_speed;
   previous_path_x_ = previous_path_x;
   previous_path_y_ = previous_path_y;
+  end_path_s_ = end_path_s;
+  end_path_d_ = end_path_d;
   sensor_fusion_ = sensor_fusion;
 
   /***************************************************************************
@@ -71,14 +77,24 @@ vector<vector<double>> behavior_planner::transition(double car_x,
   // Compute the car's current lane
   int car_lane = (int) car_d / 4;
   // For the "keep" state, the car's current lane dictates the possible successor states.
-  if        (current_state_ == "keep")
+  // If we are in the "left" or "right" state, we can only change the state once we have
+  // completed the lane change, i.e. once we have arrived in the target lane.
+  if      (current_state_ == "keep")
   {
     if      (car_lane == 0)              successor_states = {"keep", "right"};
     else if (car_lane >= num_lanes_ - 1) successor_states = {"keep", "left"};
     else                                 successor_states = {"keep", "left", "right"};
   }
-  else if   (current_state_ == "left")   successor_states = {"keep", "left"};
-  else if   (current_state_ == "right")  successor_states = {"keep", "right"};
+  else if (current_state_ == "left")
+  {
+    if      (car_lane != target_lane_)   successor_states = {"left"};
+    else                                 successor_states = {"keep", "left"};
+  }
+  else if (current_state_ == "right")
+  {
+    if      (car_lane != target_lane_)   successor_states = {"right"};
+    else                                 successor_states = {"keep", "right"};
+  }
 
   /***************************************************************************
    * 2: Check each of the possible successor states for safety and optimality,
@@ -114,12 +130,16 @@ vector<vector<double>> behavior_planner::transition(double car_x,
     if (test_state == "left")  target_lane = car_lane - 1;
     if (test_state == "right") target_lane = car_lane + 1;
 
+    cout << "target_lane: " << target_lane << endl;
+
     // Identify the leading and trailing vehicles in the target lane so that we can adjust our speed.
     vector<int> leading_trailing = get_leading_trailing(target_lane);
 
     // Compute the target velocity based on the vehicles around us and the speed limit.
     double target_velocity = compute_target_velocity(leading_trailing);
-    double time_to_reach_tv = (target_velocity - car_speed_) / 4.0; // Under normal circumstances, reach the target velocity at an acceleration of 4 m/s^2.
+    double time_to_reach_tv = fabs(target_velocity - cycle_ref_speed_) / 4.0; // Under normal circumstances, reach the target velocity at an acceleration of 4 m/s^2.
+
+    cout << "target_velocity before safety_brake: " << target_velocity << endl;
 
     // Check if we need to correct the target velocity and the time to reach it to keep a safe distance to the leading vehicle.
     vector<double> safety_velocity = safety_brake();
@@ -128,8 +148,12 @@ vector<vector<double>> behavior_planner::transition(double car_x,
       target_velocity = safety_velocity[0];
       time_to_reach_tv = safety_velocity[1];
     }
+    cout << "target_velocity after safety_brake: " << target_velocity << endl;
 
-    double time_to_reach_tl = 2.0; // Take 2 seconds to complete a lane change.
+    double ref_d = get_ref_d();
+    double dist_to_target_lane = fabs(ref_d - (2 + target_lane_ * 4));
+    // The further we are still away from the target lane, the more time we allow to reach it.
+    double time_to_reach_tl = 2.0; // 1.0 + dist_to_target_lane / 2.0;
 
     // Compute the trajectory we would follow if we chose this state.
     vector<vector<double>> test_trajectory = tra_gen.generate_trajectory(target_lane,
@@ -143,9 +167,11 @@ vector<vector<double>> behavior_planner::transition(double car_x,
                                                                          car_s,
                                                                          car_d,
                                                                          car_yaw,
-                                                                         car_speed,
+                                                                         cycle_ref_speed_,
                                                                          previous_path_x,
-                                                                         previous_path_y);
+                                                                         previous_path_y,
+                                                                         end_path_s,
+                                                                         end_path_d);
 
     /*************************************************************************
      * 2.2: Check whether this state is safe to transition into.
@@ -179,11 +205,17 @@ vector<vector<double>> behavior_planner::transition(double car_x,
     double cost = 0;
     cost += cost_weights_[0] * cost_velocity(test_trajectory);
     cost += cost_weights_[1] * cost_speed_limit(test_trajectory);
+    cost += cost_weights_[2] * cost_lane_change(target_lane);
     // We could add other cost functions here, but let's keep it simple for now.
 
     // Add the cost for this state to the list.
     safe_successor_states_cost.push_back(cost);
   }
+
+  // TODO: In case the list of safe successor states is empty at this point
+  //       (this can happen if we're in the middle of a lane change and the
+  //       lane change suddenly turns out to no longer be safe),
+  //       generate a "keep" trajectory.
 
   /***************************************************************************
    * 3: Select the state with the lowest cost.
@@ -207,11 +239,17 @@ vector<vector<double>> behavior_planner::transition(double car_x,
   // Fill up the previously generated path points with the newly generated ones
   // from the best successor state.
   int num_new_path_points = planning_horizon_ / 0.02 - previous_path_x_.size();
+  cout << "num_new_path_points: " << num_new_path_points << endl;
+  cout << endl;
   for (int i = 0; i < num_new_path_points; i++)
   {
     next_x_vals.push_back(trajectories[arg_min][0][i]);
     next_y_vals.push_back(trajectories[arg_min][1][i]);
+    cout << "ref_speed: " << trajectories[arg_min][2][i] << endl;
   }
+  cout << endl;
+  // Set the cycle reference speed as the speed at the last point of this trajectory
+  cycle_ref_speed_ = trajectories[arg_min][2][num_new_path_points - 1];
 
   // Store the target lane, it will be our memory in future iterations for checking
   // when (and whether) a lane change was successful.
@@ -293,7 +331,27 @@ double behavior_planner::compute_target_velocity(vector<int> leading_trailing)
   int leading_car = leading_trailing[0];
 
   // If there is no leading car in the lane of interest, go the speed limit.
-  if (leading_car == -1) return speed_limit_ - speed_tolerance_;
+  if (leading_car == -1) {
+    cout << "nobody in front of us, go at speed limit!" << endl;
+    return speed_limit_ - speed_tolerance_;
+  }
+
+  // Check how far away the leading vehicle is. We only adjust our speed if it is
+  // within our frontal buffer distance.
+  double ref_s = get_ref_s();
+  double ref_t = get_ref_t();
+
+  // Instantiate a predictor so that we can predict where the leading vehicle will be
+  // by the time the ego car will be at `ent_path_s_`.
+  predictor pred(sensor_fusion_);
+  vector<double> leading_car_pos = pred.position(leading_car, ref_t); // Predict the leading car's position at the reference time.
+  double leading_car_s = leading_car_pos[0];
+
+  // If the leading car is far away, go at the speed limit
+  if (fabs(leading_car_s - ref_s) > frontal_buffer_) {
+    cout << "leading car is far away, go at speed limit!" << endl;
+    return speed_limit_ - speed_tolerance_;
+  }
 
   // We assume that the leading car is driving at constant velocity,
   // i.e. it will be as fast at time t_0 (the time at which the ego
@@ -305,8 +363,14 @@ double behavior_planner::compute_target_velocity(vector<int> leading_trailing)
 
   // We always adjust our speed to follow the leading car if there is one,
   // unless the leading car is going faster than the speed limit.
-  if (leading_car_v > speed_limit_ - speed_tolerance_) return speed_limit_ - speed_tolerance_;
-  else return leading_car_v;
+  if (leading_car_v > speed_limit_ - speed_tolerance_) {
+    cout << "car in front of us, but faster than speed limit, go at speed limit!" << endl;
+    return speed_limit_ - speed_tolerance_;
+  }
+  else {
+    cout << "car in front of us, go at their speed!" << endl;
+    return leading_car_v;
+  }
 }
 
 vector<double> behavior_planner::safety_brake()
@@ -357,6 +421,7 @@ vector<double> behavior_planner::safety_brake()
 
   if (frontal_space < frontal_buffer_)
   {
+    cout << "car too close in front of us, slow down!" << endl;
     target_velocity = leading_speed - 2.28; // Slow down by 2.28 m/s ≈ 10 km/h.
     time_to_tv = 0.1 * frontal_space; // E.g.: If the frontal space was 10 meters, the time to slow down would be 1 second.
 
@@ -428,5 +493,12 @@ double behavior_planner::cost_speed_limit(const vector<vector<double>> &trajecto
     if (velocity[i] > speed_limit_ + speed_tolerance_) return 1.0;
   }
 
+  return 0.0;
+}
+
+double behavior_planner::cost_lane_change(int target_lane)
+{
+  int car_lane = (int) car_d_ / 4;
+  if (target_lane != car_lane) return 1.0;
   return 0.0;
 }
