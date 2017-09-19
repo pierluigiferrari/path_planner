@@ -73,9 +73,9 @@ int main() {
   double speed_limit_mps = mph2mps(speed_limit_mph); // Speed limit in meters per second
   double planning_horizon = 1.0; // The time horizon for the path planner in seconds
   double frontal_buffer = 20.0;
-  double lateral_buffer = 2.0;
+  double lateral_buffer = 3.0;
   double speed_tolerance = 0.2;
-  vector<double> cost_weights = {0.4, 0.4, 0.2};
+  vector<double> cost_weights = {0.5, 0.45, 0.05};
 
   behavior_planner planner(num_lanes,
                            speed_limit_mps,
