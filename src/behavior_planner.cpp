@@ -137,18 +137,21 @@ vector<vector<double>> behavior_planner::transition(double car_x,
 
     // Compute the target velocity based on the vehicles around us and the speed limit.
     double target_velocity = compute_target_velocity(leading_trailing);
-    double time_to_reach_tv = fabs(target_velocity - cycle_ref_speed_) / 4.0; // Under normal circumstances, reach the target velocity at an acceleration of 4 m/s^2.
+    double time_to_reach_tv = fabs(target_velocity - cycle_ref_speed_) / 5.0; // Under normal circumstances, reach the target velocity at an acceleration of 5 m/s^2.
 
     cout << "target_velocity before safety_brake: " << target_velocity << endl;
 
     // Check if we need to correct the target velocity and the time to reach it to keep a safe distance to the leading vehicle.
-    vector<double> safety_velocity = safety_brake();
-    if (safety_velocity[0] > 0)
+    if (test_state == "keep")
     {
-      target_velocity = safety_velocity[0];
-      time_to_reach_tv = safety_velocity[1];
+      vector<double> safety_velocity = safety_brake();
+      if (safety_velocity[0] > 0)
+      {
+        target_velocity = safety_velocity[0];
+        time_to_reach_tv = safety_velocity[1];
+      }
+      cout << "target_velocity after safety_brake: " << target_velocity << endl;
     }
-    cout << "target_velocity after safety_brake: " << target_velocity << endl;
 
     double ref_d = get_ref_d();
     double dist_to_target_lane = fabs(ref_d - (2 + target_lane_ * 4));
@@ -181,9 +184,14 @@ vector<vector<double>> behavior_planner::transition(double car_x,
     // If the current test state under consideration is a lane change,
     // check if performing this lane change at this time would be safe with regard
     // to other traffic in the target lane.
+    // However, we only check lane change safety once, when we initially consider
+    // making a lane change. Once we're in the middle of the lane change, we go
+    // through with it. (Not ideal, I know)
     bool safe;
-    if (test_state == "left" || test_state == "right") safe = lane_change_safe(test_trajectory, target_lane);
-    else if (test_state == "keep") safe = true; // In our simple world it's always safe to stay in the current lane.
+    if (test_state == "keep") safe = true; // In our simple world it's always safe to stay in the current lane.
+    else if (current_state_ == "keep" && (test_state == "left" || test_state == "right")) safe = lane_change_safe(test_trajectory, target_lane);
+    else if (current_state_ == "left" && test_state == "left") safe = true;
+    else if (current_state_ == "right" && test_state == "right") safe = true;
 
     // If the test state is safe, add it to the list of safe successor states.
     if (safe)
@@ -200,18 +208,18 @@ vector<vector<double>> behavior_planner::transition(double car_x,
     /*************************************************************************
      * 2.3: Compute the cost of this state.
      *************************************************************************/
-
+    cout << "test_state: " << test_state << " possible average velocity: ";
     // If this test state is safe, compute its cost.
     double cost = 0;
     cost += cost_weights_[0] * cost_velocity(test_trajectory);
     cost += cost_weights_[1] * cost_speed_limit(test_trajectory);
     cost += cost_weights_[2] * cost_lane_change(target_lane);
     // We could add other cost functions here, but let's keep it simple for now.
-
+    cout << "cost: " << cost << endl;
     // Add the cost for this state to the list.
     safe_successor_states_cost.push_back(cost);
   }
-
+  cout << endl;
   // TODO: In case the list of safe successor states is empty at this point
   //       (this can happen if we're in the middle of a lane change and the
   //       lane change suddenly turns out to no longer be safe),
@@ -239,15 +247,11 @@ vector<vector<double>> behavior_planner::transition(double car_x,
   // Fill up the previously generated path points with the newly generated ones
   // from the best successor state.
   int num_new_path_points = planning_horizon_ / 0.02 - previous_path_x_.size();
-  cout << "num_new_path_points: " << num_new_path_points << endl;
-  cout << endl;
   for (int i = 0; i < num_new_path_points; i++)
   {
     next_x_vals.push_back(trajectories[arg_min][0][i]);
     next_y_vals.push_back(trajectories[arg_min][1][i]);
-    cout << "ref_speed: " << trajectories[arg_min][2][i] << endl;
   }
-  cout << endl;
   // Set the cycle reference speed as the speed at the last point of this trajectory
   cycle_ref_speed_ = trajectories[arg_min][2][num_new_path_points - 1];
 
@@ -443,8 +447,6 @@ bool behavior_planner::lane_change_safe(vector<vector<double>> trajectory, int t
   // The trajectory to be tested begins at the reference time.
   double ref_t = get_ref_t();
 
-  bool safe = true; // If `true`, this trajectory is safe.
-
   for (int i = 0; i < trajectory[0].size(); i++) // Iterate over all trajectory points.
   {
     for (int j = 0; j < sensor_fusion_.size(); j++) // Iterate over all other vehicles on the road.
@@ -458,6 +460,20 @@ bool behavior_planner::lane_change_safe(vector<vector<double>> trajectory, int t
         double other_car_s = other_car_pos[0];
         double other_car_d = other_car_pos[1];
 
+        // ...check whether it will be too close in front of us at any point along the trajectory.
+        if (i > 0)
+        {
+          // Get the Frenet coordinates for this trajectory point (we need the yaw at that point for this).
+          double ego_car_yaw = atan2(trajectory[1][i] - trajectory[1][i - 1], trajectory[0][i] - trajectory[0][i - 1]);
+          vector<double> ego_car_frenet = get_frenet(trajectory[0][i], trajectory[1][i], ego_car_yaw, map_waypoints_x_, map_waypoints_y_);
+          double ego_car_s = ego_car_frenet[0];
+          // Using the Frenet s position, check whether the other car will be too close in front of us at this trajectory point.
+          // If it will be, then this trajectory is unsafe.
+          if (other_car_s > ego_car_s && other_car_s - ego_car_s < 1.5 * frontal_buffer_) return false;
+        }
+
+        // Next, check whether this other car will be too close to us in any direction around us (above we only checked if it is
+        // too close in front of us, but we didn't check what the situation is laterally).
         // Convert to Cartesian coordinates so we can measure the Euclidean distance.
         vector<double> other_car_xy = get_xy(other_car_s, other_car_d, map_waypoints_s_, map_waypoints_x_, map_waypoints_y_);
 
@@ -467,19 +483,19 @@ bool behavior_planner::lane_change_safe(vector<vector<double>> trajectory, int t
         // Compute the predicted l2 distance between the ego car and the other car at time t_i.
         double l2_norm = l2_distance(ego_car_x, ego_car_y, other_car_xy[0], other_car_xy[1]);
         // If the distance is smaller than the required safety buffer at any point in time, this trajectory is not safe.
-        if (l2_norm < lateral_buffer_) safe = false;
+        if (l2_norm < lateral_buffer_) return false;
       }
     }
   }
 
-  return safe;
+  return true;
 }
 
 double behavior_planner::cost_velocity(const vector<vector<double>> &trajectory, double stop_cost)
 {
   vector<double> velocity = trajectory[2];
   double average_velocity = accumulate(velocity.begin(), velocity.end(), 0.0) / velocity.size();
-
+  cout << average_velocity;
   if (average_velocity <= speed_limit_) return (-stop_cost / speed_limit_) * average_velocity + stop_cost;
   else return 0.0; // This cost function doesn't care about the speed limit.
 }
