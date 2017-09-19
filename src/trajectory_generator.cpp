@@ -7,6 +7,7 @@
 
 #include <math.h>
 #include <vector>
+#include <iostream>
 #include "spline.h"
 #include "trajectory_generator.h"
 #include "helper_functions.h"
@@ -35,9 +36,11 @@ vector<vector<double>> trajectory_generator::generate_trajectory(int target_lane
                                                                  double car_s,
                                                                  double car_d,
                                                                  double car_yaw,
-                                                                 double car_speed,
+                                                                 double end_path_v,
                                                                  vector<double> previous_path_x,
-                                                                 vector<double> previous_path_y)
+                                                                 vector<double> previous_path_y,
+                                                                 double end_path_s,
+                                                                 double end_path_d)
 {
   // Check how many path points we have left from the previous path.
   int prev_size = previous_path_x.size();
@@ -84,16 +87,22 @@ vector<vector<double>> trajectory_generator::generate_trajectory(int target_lane
   // Add three additional spline end points that are spaced far apart.
   // Assume that each lane is 4 meters wide.
 
-  // The average speed between the car's current speed and its target speed determines
+  // The average of the car's current speed and its target speed determines
   // the s coordinate by which the transition from the current lane to the target lane
   // must be completed.
-  double avg_speed = 0.5 * (car_speed + target_velocity);
-  // Compute the car's current lane.
-  int car_lane = (int) car_d / 4;
+  double avg_speed = 0.5 * (end_path_v + target_velocity);
 
-  vector<double> spline_point_3 = get_xy(car_s + 0.5 * time_to_reach_tl * avg_speed, (2 + 4 * (double) car_lane), map_waypoints_s_, map_waypoints_x_, map_waypoints_y_);
-  vector<double> spline_point_4 = get_xy(car_s + time_to_reach_tl * avg_speed, (2 + 4 * (double) target_lane), map_waypoints_s_, map_waypoints_x_, map_waypoints_y_);
-  vector<double> spline_point_5 = get_xy(car_s + 2 * time_to_reach_tl * avg_speed, (2 + 4 * (double) target_lane), map_waypoints_s_, map_waypoints_x_, map_waypoints_y_);
+  double ref_s;
+  if (prev_size > 0) ref_s = end_path_s;
+  else ref_s = car_s;
+
+  //vector<double> spline_point_3 = get_xy(ref_s + time_to_reach_tl * avg_speed, (2 + 4 * (double) target_lane), map_waypoints_s_, map_waypoints_x_, map_waypoints_y_);
+  //vector<double> spline_point_4 = get_xy(ref_s + 2 * time_to_reach_tl * avg_speed, (2 + 4 * (double) target_lane), map_waypoints_s_, map_waypoints_x_, map_waypoints_y_);
+  //vector<double> spline_point_5 = get_xy(ref_s + 3 * time_to_reach_tl * avg_speed, (2 + 4 * (double) target_lane), map_waypoints_s_, map_waypoints_x_, map_waypoints_y_);
+
+  vector<double> spline_point_3 = get_xy(ref_s + 30, (2 + 4 * (double) target_lane), map_waypoints_s_, map_waypoints_x_, map_waypoints_y_);
+  vector<double> spline_point_4 = get_xy(ref_s + 60, (2 + 4 * (double) target_lane), map_waypoints_s_, map_waypoints_x_, map_waypoints_y_);
+  vector<double> spline_point_5 = get_xy(ref_s + 90, (2 + 4 * (double) target_lane), map_waypoints_s_, map_waypoints_x_, map_waypoints_y_);
 
   spline_points_x.push_back(spline_point_3[0]);
   spline_points_x.push_back(spline_point_4[0]);
@@ -153,12 +162,7 @@ vector<vector<double>> trajectory_generator::generate_trajectory(int target_lane
   double x_offset = 0; // An offset for the loop below
 
   // Store the car's speed at the currently considered path planning point here
-  double ref_speed = car_speed;
-
-  // Compute the required acceleration to reach the target velocity in the required time,
-  // with the acceleration being bounded within [-10 m/s^2, +9 m/s^2].
-  double acceleration = (target_velocity - car_speed) / time_to_reach_tv;
-  acceleration = max(-10.0, min(9.0, acceleration));
+  double ref_speed = end_path_v;
 
   // We're filling up as many missing path points such that we always have the required number of path points for the new path
   // corresponding to the planning horizon at 50 path points per second.
@@ -167,19 +171,27 @@ vector<vector<double>> trajectory_generator::generate_trajectory(int target_lane
     // If necessary, accelerate or slow down between the last path point and this path point
     if (fabs(ref_speed - target_velocity) > 0.2) // Allow a 0.2 m/s tolerance.
     {
+      // Compute the required acceleration to reach the target velocity in the required time,...
+      double acceleration = (target_velocity - ref_speed) / time_to_reach_tv;
+      // ...with the acceleration being bounded within reasonable values.
+      acceleration = max(-9.0, min(9.0, acceleration));
       ref_speed += acceleration * 0.02;
     }
+    //if (ref_speed > target_velocity + 0.2) ref_speed -= 0.1;
+    //else if (ref_speed < target_velocity - 0.2) ref_speed += 0.1;
 
     if (full_path)
     {
       next_v_vals.push_back(ref_speed);
-      next_a_vals.push_back(acceleration);
+      //next_a_vals.push_back(acceleration);
     }
 
     // Compute the number of segments to subdivide the next 30-meter stretch of the spline into
-    double N = target_dist / (0.02 * ref_speed); // Car visits a new path point every 20 ms and dividing by 2.24 converts the reference velocity from mph to m/s.
+    double N = target_dist / (0.02 * ref_speed); // Car visits a new path point every 20 ms
     double next_x = x_offset + target_x / N;
     double next_y = spline(next_x);
+
+    //cout << "ref_speed: " << ref_speed << " N: " << N << " next_x: " << next_x << endl;
 
     x_offset = next_x;
 
@@ -196,6 +208,7 @@ vector<vector<double>> trajectory_generator::generate_trajectory(int target_lane
     next_x_vals.push_back(next_x);
     next_y_vals.push_back(next_y);
   }
+  cout << endl;
 
   return {next_x_vals, next_y_vals, next_v_vals, next_a_vals};
 }
