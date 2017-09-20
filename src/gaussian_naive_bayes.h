@@ -34,7 +34,9 @@ public:
    * Loads the training and test datasets.
    *
    */
-  void set_up_training(string train_data, string train_labels, string test_data, string test_labels);
+  void set_up_training(string train_data, string train_labels);
+
+  void set_up_evaluation(string test_data, string test_labels);
 
   /*
    * Trains the classifier with N data points and labels. "Training" consists of
@@ -48,7 +50,7 @@ public:
    *
    * @param verbose If `true`, prints the accuracy of the classifier to standard output. Defaults to `false`.
    */
-  float test(bool verbose = false);
+  float evaluate(bool verbose = false);
 
   /*
    * Predicts a label given a sample. You need to train the classifier before
@@ -67,27 +69,27 @@ private:
   // A 2-dimensional vector of shape (N, 4) containing N samples, each consisting of
   // the four features s, d, s_dot, and d_dot. These features are the Frenet
   // coordinates s and d and their first derivatives.
-  vector<vector<double>> x_train;
-  vector<vector<double>> x_test;
+  vector<vector<double>> x_train_;
+  vector<vector<double>> x_test_;
   // A vector containing the N labels. Each label is one of "left", "keep", or "right".
-  vector<string> y_train;
-  vector<string> y_test;
+  vector<string> y_train_;
+  vector<string> y_test_;
 
   // The list of classes that this classifier can distinguish
-  vector<string> classes = {"left","keep","right"};
+  vector<string> classes_ = {"left","keep","right"};
 
   // Means and variances for the Gaussian feature distributions by class
-  vector<double> s_means = vector<double>(classes.size());
-  vector<double> s_variances = vector<double>(classes.size());
-  vector<double> s_dot_means = vector<double>(classes.size());
-  vector<double> s_dot_variances = vector<double>(classes.size());
-  vector<double> d_rel_means = vector<double>(classes.size());
-  vector<double> d_rel_variances = vector<double>(classes.size());
-  vector<double> d_dot_means = vector<double>(classes.size());
-  vector<double> d_dot_variances = vector<double>(classes.size());
+  vector<double> s_means_ = vector<double>(classes_.size());
+  vector<double> s_variances_ = vector<double>(classes_.size());
+  vector<double> s_dot_means_ = vector<double>(classes_.size());
+  vector<double> s_dot_variances_ = vector<double>(classes_.size());
+  vector<double> d_rel_means_ = vector<double>(classes_.size());
+  vector<double> d_rel_variances_ = vector<double>(classes_.size());
+  vector<double> d_dot_means_ = vector<double>(classes_.size());
+  vector<double> d_dot_variances_ = vector<double>(classes_.size());
 
   // Prior distribution
-  vector<double> prior_dist = vector<double>(classes.size());
+  vector<double> prior_dist_ = vector<double>(classes_.size());
 
   /*
    * Loads the data for training from `file_name`.
