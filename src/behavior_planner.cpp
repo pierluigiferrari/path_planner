@@ -19,6 +19,7 @@ using namespace std;
 
 behavior_planner::behavior_planner(int num_lanes,
                                    double speed_limit,
+                                   GNB gnb,
                                    vector<double> map_waypoints_x,
                                    vector<double> map_waypoints_y,
                                    vector<double> map_waypoints_s,
@@ -40,6 +41,8 @@ behavior_planner::behavior_planner(int num_lanes,
   map_waypoints_x_ = map_waypoints_x;
   map_waypoints_y_ = map_waypoints_y;
   map_waypoints_s_ = map_waypoints_s;
+  pred_ = Predictor(gnb, map_waypoints_x, map_waypoints_y, map_waypoints_s);
+  tra_gen_ = TrajectoryGenerator(map_waypoints_x, map_waypoints_y, map_waypoints_s);
 }
 
 behavior_planner::~behavior_planner() {}
@@ -56,6 +59,7 @@ vector<vector<double>> behavior_planner::transition(double car_x,
                                                     double end_path_d,
                                                     vector<vector<double>> sensor_fusion)
 {
+  // Update all observed variables.
   car_x_ = car_x;
   car_y_ = car_y;
   car_s_ = car_s;
@@ -67,6 +71,10 @@ vector<vector<double>> behavior_planner::transition(double car_x,
   end_path_s_ = end_path_s;
   end_path_d_ = end_path_d;
   sensor_fusion_ = sensor_fusion;
+  pred_.update(sensor_fusion);
+  // The prediction horizon for other cars needs to be equal to
+  // the planning horizon of the ego car plus the length of the current path.
+  pred_.predict_trajectories(planning_horizon_ + previous_path_x.size());
 
   /***************************************************************************
    * 1: Get all generally possible successor states from the current state.
@@ -88,12 +96,12 @@ vector<vector<double>> behavior_planner::transition(double car_x,
   else if (current_state_ == "left")
   {
     if      (car_lane != target_lane_)   successor_states = {"left"};
-    else                                 successor_states = {"keep", "left"};
+    else                                 successor_states = {"keep"};
   }
   else if (current_state_ == "right")
   {
     if      (car_lane != target_lane_)   successor_states = {"right"};
-    else                                 successor_states = {"keep", "right"};
+    else                                 successor_states = {"keep"};
   }
 
   /***************************************************************************
@@ -122,13 +130,13 @@ vector<vector<double>> behavior_planner::transition(double car_x,
     // optimal, compute a trajectory for it so that we know what it would
     // actually mean to transition into this state.
 
-    trajectory_generator tra_gen(map_waypoints_x_, map_waypoints_y_, map_waypoints_s_);
-
     // Compute the target lane for this test state.
     int target_lane;
     if (test_state == "keep")  target_lane = car_lane;
-    if (test_state == "left")  target_lane = car_lane - 1;
-    if (test_state == "right") target_lane = car_lane + 1;
+    if (test_state == "left"  && current_state_ == "keep") target_lane = car_lane - 1;
+    if (test_state == "right" && current_state_ == "keep") target_lane = car_lane + 1;
+    if (test_state == "left" && current_state_ == "left") target_lane = target_lane_;
+    if (test_state == "right" && current_state_ == "right") target_lane = target_lane_;
 
     cout << "target_lane: " << target_lane << endl;
 
@@ -158,23 +166,24 @@ vector<vector<double>> behavior_planner::transition(double car_x,
     // The further we are still away from the target lane, the more time we allow to reach it.
     double time_to_reach_tl = 2.0; // 1.0 + dist_to_target_lane / 2.0;
 
+    std::cout << "Predicting for the ego car." << std::endl;
     // Compute the trajectory we would follow if we chose this state.
-    vector<vector<double>> test_trajectory = tra_gen.generate_trajectory(target_lane,
-                                                                         target_velocity,
-                                                                         time_to_reach_tl,
-                                                                         time_to_reach_tv,
-                                                                         planning_horizon_,
-                                                                         true,
-                                                                         car_x,
-                                                                         car_y,
-                                                                         car_s,
-                                                                         car_d,
-                                                                         car_yaw,
-                                                                         cycle_ref_speed_,
-                                                                         previous_path_x,
-                                                                         previous_path_y,
-                                                                         end_path_s,
-                                                                         end_path_d);
+    vector<vector<double>> test_trajectory = tra_gen_.generate_trajectory(target_lane,
+                                                                          target_velocity,
+                                                                          time_to_reach_tl,
+                                                                          time_to_reach_tv,
+                                                                          planning_horizon_,
+                                                                          true,
+                                                                          car_x,
+                                                                          car_y,
+                                                                          car_s,
+                                                                          car_d,
+                                                                          car_yaw,
+                                                                          cycle_ref_speed_,
+                                                                          previous_path_x,
+                                                                          previous_path_y,
+                                                                          end_path_s,
+                                                                          end_path_d);
 
     /*************************************************************************
      * 2.2: Check whether this state is safe to transition into.
@@ -297,20 +306,21 @@ vector<int> behavior_planner::get_leading_trailing(int lane)
   double leading_s = ref_s + 10000; // Just some large enough number
   double trailing_s = ref_s - 10000; // Just some small enough number
 
-  // Instantiate a predictor so that we can predict where the other vehicles will be
-  // by the time the ego car will be at `ent_path_s_`.
-  predictor pred(sensor_fusion_);
-
   // The reference time is the time of the last path point of the current path.
   // This is the time for which we want to predict the positions of the other vehicles.
   double ref_t = get_ref_t();
 
   for (int i = 0; i < sensor_fusion_.size(); i++) // Iterate over all cars in the sensor fusion data.
   {
-    vector<double> other_car_pos = pred.position(i, ref_t); // Predict this car's position at the reference time.
+    if (sensor_fusion_[i][6] < 0) continue;
 
-    int other_car_lane = (int) other_car_pos[2];
-    double other_car_s = other_car_pos[0];
+    int time_step = ref_t / 0.02;
+    vector<double> other_car_pos_xy = pred_.predict_location(i, time_step); // Predict this car's position at the reference time.
+    vector<double> other_car_pos_frenet = get_frenet(other_car_pos_xy[0], other_car_pos_xy[1], other_car_pos_xy[4], map_waypoints_x_, map_waypoints_y_);
+
+    double other_car_s = other_car_pos_frenet[0];
+    double other_car_d = other_car_pos_frenet[1];
+    int other_car_lane = (int) other_car_d / 4;
 
     if (other_car_lane == lane) // If this car will be in the lane of interest...
     {
@@ -335,46 +345,30 @@ double behavior_planner::compute_target_velocity(vector<int> leading_trailing)
   int leading_car = leading_trailing[0];
 
   // If there is no leading car in the lane of interest, go the speed limit.
-  if (leading_car == -1) {
-    cout << "nobody in front of us, go at speed limit!" << endl;
-    return speed_limit_ - speed_tolerance_;
-  }
+  if (leading_car == -1) return speed_limit_ - speed_tolerance_;
 
   // Check how far away the leading vehicle is. We only adjust our speed if it is
   // within our frontal buffer distance.
   double ref_s = get_ref_s();
   double ref_t = get_ref_t();
 
-  // Instantiate a predictor so that we can predict where the leading vehicle will be
+  // Predict where the leading vehicle will be
   // by the time the ego car will be at `ent_path_s_`.
-  predictor pred(sensor_fusion_);
-  vector<double> leading_car_pos = pred.position(leading_car, ref_t); // Predict the leading car's position at the reference time.
-  double leading_car_s = leading_car_pos[0];
+  int time_step = ref_t / 0.02;
+  vector<double> leading_car_pos_xy = pred_.predict_location(leading_car, time_step); // Predict this car's position at the reference time.
+  vector<double> leading_car_pos_frenet = get_frenet(leading_car_pos_xy[0], leading_car_pos_xy[1], leading_car_pos_xy[4], map_waypoints_x_, map_waypoints_y_);
+
+  double leading_car_s = leading_car_pos_frenet[0];
 
   // If the leading car is far away, go at the speed limit
-  if (fabs(leading_car_s - ref_s) > frontal_buffer_) {
-    cout << "leading car is far away, go at speed limit!" << endl;
-    return speed_limit_ - speed_tolerance_;
-  }
+  if (fabs(leading_car_s - ref_s) > frontal_buffer_) return speed_limit_ - speed_tolerance_;
 
-  // We assume that the leading car is driving at constant velocity,
-  // i.e. it will be as fast at time t_0 (the time at which the ego
-  // car will reach `end_path_s_`) as it is now.
-  double leading_car_vx = sensor_fusion_[leading_car][3];
-  double leading_car_vy = sensor_fusion_[leading_car][4];
-
-  double leading_car_v = sqrt(leading_car_vx * leading_car_vx + leading_car_vy * leading_car_vy);
+  double leading_car_v = leading_car_pos_xy[2];
 
   // We always adjust our speed to follow the leading car if there is one,
   // unless the leading car is going faster than the speed limit.
-  if (leading_car_v > speed_limit_ - speed_tolerance_) {
-    cout << "car in front of us, but faster than speed limit, go at speed limit!" << endl;
-    return speed_limit_ - speed_tolerance_;
-  }
-  else {
-    cout << "car in front of us, go at their speed!" << endl;
-    return leading_car_v;
-  }
+  if (leading_car_v > speed_limit_ - speed_tolerance_) return speed_limit_ - speed_tolerance_;
+  else return leading_car_v;
 }
 
 vector<double> behavior_planner::safety_brake()
@@ -394,20 +388,20 @@ vector<double> behavior_planner::safety_brake()
   double ref_s = get_ref_s();
   double ref_d = get_ref_d();
 
-  // Instantiate a predictor so that we can predict where the other vehicles will be
-  // by the time the ego car will be at `ent_path_s_`.
-  predictor pred(sensor_fusion_);
-
   // The reference time is the time of the last path point of the current path.
   // This is the time for which we want to predict the positions of the other vehicles.
   double ref_t = get_ref_t();
 
   for (int i = 0; i < sensor_fusion_.size(); i++) // Iterate over all cars in the sensor fusion data.
   {
-    vector<double> other_car_pos = pred.position(i, ref_t); // Predict this car's position at the reference time.
+    if (sensor_fusion_[i][6] < 0) continue;
 
-    double other_car_s = other_car_pos[0];
-    double other_car_d = other_car_pos[1];
+    int time_step = ref_t / 0.02;
+    vector<double> other_car_pos_xy = pred_.predict_location(i, time_step); // Predict this car's position at the reference time.
+    vector<double> other_car_pos_frenet = get_frenet(other_car_pos_xy[0], other_car_pos_xy[1], other_car_pos_xy[4], map_waypoints_x_, map_waypoints_y_);
+
+    double other_car_s = other_car_pos_frenet[0];
+    double other_car_d = other_car_pos_frenet[1];
 
     if (other_car_d > (ref_d - lateral_buffer_) && other_car_d < (ref_d + lateral_buffer_))
     { // ...and if the other car too close to the ego car LATERALLY
@@ -418,14 +412,13 @@ vector<double> behavior_planner::safety_brake()
       if (other_car_s > ref_s && s_distance < frontal_buffer_ && s_distance < frontal_space)
       { // If the other car will be in front of the ego car AND too close AND closer than any other car in front of us so far...
         frontal_space = s_distance; // ...then this car determines the space we will have in front of the ego car.
-        leading_speed = pred.velocity(i);
+        leading_speed = other_car_pos_xy[2];
       }
     }
   }
 
   if (frontal_space < frontal_buffer_)
   {
-    cout << "car too close in front of us, slow down!" << endl;
     target_velocity = leading_speed - 2.28; // Slow down by 2.28 m/s ≈ 10 km/h.
     time_to_tv = 0.1 * frontal_space; // E.g.: If the frontal space was 10 meters, the time to slow down would be 1 second.
 
@@ -441,9 +434,6 @@ bool behavior_planner::lane_change_safe(vector<vector<double>> trajectory, int t
   // For each time point in this trajectory, check if the ego car would be
   // too close to any other vehicle's position at that same time point.
 
-  // Set up a predictor object to predict the position of the other vehicles in the future.
-  predictor pred(sensor_fusion_);
-
   // The trajectory to be tested begins at the reference time.
   double ref_t = get_ref_t();
 
@@ -451,15 +441,18 @@ bool behavior_planner::lane_change_safe(vector<vector<double>> trajectory, int t
   {
     for (int j = 0; j < sensor_fusion_.size(); j++) // Iterate over all other vehicles on the road.
     {
-      vector<double> other_car_pos = pred.position(j, ref_t + i * 0.02); // Predict this car's position at time t_i = ref_t + i * 0.02s.
+      if (sensor_fusion_[j][6] < 0) continue;
 
-      int other_car_lane = other_car_pos[2];
+      int time_step = ref_t / 0.02;
+      vector<double> other_car_pos_xy = pred_.predict_location(j, time_step + i); // Predict this car's position at the reference time.
+      vector<double> other_car_pos_frenet = get_frenet(other_car_pos_xy[0], other_car_pos_xy[1], other_car_pos_xy[4], map_waypoints_x_, map_waypoints_y_);
+
+      double other_car_s = other_car_pos_frenet[0];
+      double other_car_d = other_car_pos_frenet[1];
+      int other_car_lane = (int) other_car_d / 4;
 
       if (other_car_lane == target_lane) // If this car will be in the target lane at time t_i...
       {
-        double other_car_s = other_car_pos[0];
-        double other_car_d = other_car_pos[1];
-
         // ...check whether it will be too close in front of us at any point along the trajectory.
         if (i > 0)
         {

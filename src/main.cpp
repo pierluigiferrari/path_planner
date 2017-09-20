@@ -10,6 +10,8 @@
 #include "json.hpp"
 #include "helper_functions.h"
 #include "behavior_planner.h"
+#include "predictor.h"
+#include "gaussian_naive_bayes.h"
 
 using namespace std;
 
@@ -77,8 +79,16 @@ int main() {
   double speed_tolerance = 0.2;
   vector<double> cost_weights = {0.5, 0.45, 0.05};
 
+  // Instantiate and train the Gaussian Naive Bayes classifier.
+  GNB gnb = GNB();
+  gnb.set_up_training("./data/train_data.txt", "./data/train_labels.txt");
+  gnb.train();
+
+  // Instantiate the behavior planner. It will handle all prediction, planning,
+  // and trajectory generation.
   behavior_planner planner(num_lanes,
                            speed_limit_mps,
+                           gnb,
                            map_waypoints_x,
                            map_waypoints_y,
                            map_waypoints_s,

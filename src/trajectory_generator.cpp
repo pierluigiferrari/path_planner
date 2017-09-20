@@ -14,33 +14,35 @@
 
 using namespace std;
 
-trajectory_generator::trajectory_generator(vector<double> map_waypoints_x,
-                                           vector<double> map_waypoints_y,
-                                           vector<double> map_waypoints_s)
+TrajectoryGenerator::TrajectoryGenerator() {};
+
+TrajectoryGenerator::TrajectoryGenerator(vector<double> map_waypoints_x,
+                                         vector<double> map_waypoints_y,
+                                         vector<double> map_waypoints_s)
 {
   map_waypoints_x_ = map_waypoints_x;
   map_waypoints_y_ = map_waypoints_y;
   map_waypoints_s_ = map_waypoints_s;
 }
 
-trajectory_generator::~trajectory_generator() {}
+TrajectoryGenerator::~TrajectoryGenerator() {}
 
-vector<vector<double>> trajectory_generator::generate_trajectory(int target_lane,
-                                                                 double target_velocity,
-                                                                 double time_to_reach_tl,
-                                                                 double time_to_reach_tv,
-                                                                 double planning_horizon,
-                                                                 bool full_path,
-                                                                 double car_x,
-                                                                 double car_y,
-                                                                 double car_s,
-                                                                 double car_d,
-                                                                 double car_yaw,
-                                                                 double end_path_v,
-                                                                 vector<double> previous_path_x,
-                                                                 vector<double> previous_path_y,
-                                                                 double end_path_s,
-                                                                 double end_path_d)
+vector<vector<double>> TrajectoryGenerator::generate_trajectory(int target_lane,
+                                                                double target_velocity,
+                                                                double time_to_reach_tl,
+                                                                double time_to_reach_tv,
+                                                                double planning_horizon,
+                                                                bool full_path,
+                                                                double car_x,
+                                                                double car_y,
+                                                                double car_s,
+                                                                double car_d,
+                                                                double car_yaw,
+                                                                double end_path_v,
+                                                                vector<double> previous_path_x,
+                                                                vector<double> previous_path_y,
+                                                                double end_path_s,
+                                                                double end_path_d)
 {
   // Check how many path points we have left from the previous path.
   int prev_size = previous_path_x.size();
@@ -65,10 +67,15 @@ vector<vector<double>> trajectory_generator::generate_trajectory(int target_lane
     spline_points_x.push_back(car_x);
     spline_points_y.push_back(prev_car_y);
     spline_points_y.push_back(car_y);
+
+    cout << "We have fewer than 2 previous points!" << endl;
+    cout << "spline_points_x[0]: " << prev_car_x << endl;
+    cout << "spline_points_x[1]: " << car_x << endl;
   }
   // Now cover the states in which we have a sufficiently long previous path.
   else
   { // Or else, if we have enough previous path points...
+    cout << "We have more than 2 prev points. How is this possible?" << endl;
     // ...make the last path point of the previous path the new reference position...
     ref_x = previous_path_x[prev_size - 1];
     ref_y = previous_path_y[prev_size - 1];
@@ -111,6 +118,10 @@ vector<vector<double>> trajectory_generator::generate_trajectory(int target_lane
   spline_points_y.push_back(spline_point_4[1]);
   spline_points_y.push_back(spline_point_5[1]);
 
+  cout << "spline_points_x[2]: " << spline_point_3[0] << endl;
+  cout << "spline_points_x[3]: " << spline_point_4[0] << endl;
+  cout << "spline_points_x[4]: " << spline_point_5[0] << endl;
+
   // Transform the spline points into the car's local coordinate system
   for (int i = 0; i < spline_points_x.size(); i++)
   {
@@ -132,6 +143,7 @@ vector<vector<double>> trajectory_generator::generate_trajectory(int target_lane
   vector<double> next_y_vals;
   vector<double> next_v_vals; // Store velocity at each path point.
   vector<double> next_a_vals; // Store acceleration at each path point.
+  vector<double> next_yaw_vals; // Store heading at each path point.
 
   // Determine how many path points to generate.
   int num_new_path_points;
@@ -168,22 +180,22 @@ vector<vector<double>> trajectory_generator::generate_trajectory(int target_lane
   // corresponding to the planning horizon at 50 path points per second.
   for (int i = 0; i < num_new_path_points; i++)
   {
+    double acceleration = 0.0;
+
     // If necessary, accelerate or slow down between the last path point and this path point
     if (fabs(ref_speed - target_velocity) > 0.2) // Allow a 0.2 m/s tolerance.
     {
       // Compute the required acceleration to reach the target velocity in the required time,...
-      double acceleration = (target_velocity - ref_speed) / time_to_reach_tv;
+      acceleration = (target_velocity - ref_speed) / time_to_reach_tv;
       // ...with the acceleration being bounded within reasonable values.
       acceleration = max(-9.0, min(9.0, acceleration));
       ref_speed += acceleration * 0.02;
     }
-    //if (ref_speed > target_velocity + 0.2) ref_speed -= 0.1;
-    //else if (ref_speed < target_velocity - 0.2) ref_speed += 0.1;
 
     if (full_path)
     {
       next_v_vals.push_back(ref_speed);
-      //next_a_vals.push_back(acceleration);
+      next_a_vals.push_back(acceleration);
     }
 
     // Compute the number of segments to subdivide the next 30-meter stretch of the spline into
@@ -207,9 +219,14 @@ vector<vector<double>> trajectory_generator::generate_trajectory(int target_lane
     // Push this next path point onto the list
     next_x_vals.push_back(next_x);
     next_y_vals.push_back(next_y);
-  }
-  cout << endl;
 
-  return {next_x_vals, next_y_vals, next_v_vals, next_a_vals};
+    double next_yaw;
+    if (i == 0) next_yaw = atan2(next_y_vals[i] - car_y, next_x_vals[i - 1] - car_x);
+    else        next_yaw = atan2(next_y_vals[i] - next_y_vals[i - 1], next_x_vals[i] - next_x_vals[i - 1]);
+
+    next_yaw_vals.push_back(next_yaw);
+  }
+
+  return {next_x_vals, next_y_vals, next_v_vals, next_a_vals, next_yaw_vals};
 }
 

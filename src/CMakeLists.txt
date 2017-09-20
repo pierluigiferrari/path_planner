@@ -7,7 +7,7 @@ add_definitions(-std=c++11)
 set(CXX_FLAGS "-Wall")
 set(CMAKE_CXX_FLAGS, "${CXX_FLAGS}")
 
-set(sources main.cpp predictor.cpp behavior_planner.cpp trajectory_generator.cpp helper_functions.cpp)
+set(sources main.cpp predictor.cpp behavior_planner.cpp trajectory_generator.cpp gaussian_naive_bayes.cpp helper_functions.cpp)
 
 
 if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
