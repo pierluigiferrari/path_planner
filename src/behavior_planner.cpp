@@ -483,7 +483,7 @@ bool behavior_planner::lane_change_safe(vector<vector<double>> trajectory, int t
         // Compute the predicted l2 distance between the ego car and the other car at time t_i.
         double l2_norm = l2_distance(ego_car_x, ego_car_y, other_car_xy[0], other_car_xy[1]);
         // If the distance is smaller than the required safety buffer at any point in time, this trajectory is not safe.
-        if (l2_norm < lateral_buffer_) return false;
+        if (l2_norm < lateral_buffer_ + 1.0) return false; // Add one meter to the standard lateral buffer, just to be sure.
       }
     }
   }
