@@ -164,7 +164,7 @@ vector<vector<double>> behavior_planner::transition(double car_x,
     double ref_d = get_ref_d();
     double dist_to_target_lane = fabs(ref_d - (2 + target_lane_ * 4));
     // The further we are still away from the target lane, the more time we allow to reach it.
-    double time_to_reach_tl = 2.0; // 1.0 + dist_to_target_lane / 2.0;
+    double time_to_reach_tl = 1.0 + dist_to_target_lane / 4.0;
 
     std::cout << "Predicting for the ego car." << std::endl;
     // Compute the trajectory we would follow if we chose this state.
@@ -223,6 +223,7 @@ vector<vector<double>> behavior_planner::transition(double car_x,
     cost += cost_weights_[0] * cost_velocity(test_trajectory);
     cost += cost_weights_[1] * cost_speed_limit(test_trajectory);
     cost += cost_weights_[2] * cost_lane_change(target_lane);
+    cost += cost_weights_[3] * cost_outer_lane(target_lane);
     // We could add other cost functions here, but let's keep it simple for now.
     cout << "cost: " << cost << endl;
     // Add the cost for this state to the list.
@@ -462,7 +463,7 @@ bool behavior_planner::lane_change_safe(vector<vector<double>> trajectory, int t
           double ego_car_s = ego_car_frenet[0];
           // Using the Frenet s position, check whether the other car will be too close in front of us at this trajectory point.
           // If it will be, then this trajectory is unsafe.
-          if (other_car_s > ego_car_s && other_car_s - ego_car_s < 1.5 * frontal_buffer_) return false;
+          if (other_car_s > ego_car_s && other_car_s - ego_car_s < 1.1 * frontal_buffer_) return false;
         }
 
         // Next, check whether this other car will be too close to us in any direction around us (above we only checked if it is
@@ -507,7 +508,13 @@ double behavior_planner::cost_speed_limit(const vector<vector<double>> &trajecto
 
 double behavior_planner::cost_lane_change(int target_lane)
 {
-  int car_lane = (int) car_d_ / 4;
+  int car_lane = (int) get_ref_d() / 4;
   if (target_lane != car_lane) return 1.0;
   return 0.0;
+}
+
+double behavior_planner::cost_outer_lane(int target_lane)
+{
+  if (target_lane == 0 || target_lane == num_lanes_ - 1) return 1.0;
+  else return 0.0;
 }

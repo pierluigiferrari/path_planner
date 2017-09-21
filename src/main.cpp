@@ -77,7 +77,7 @@ int main() {
   double frontal_buffer = 20.0;
   double lateral_buffer = 3.0;
   double speed_tolerance = 0.2;
-  vector<double> cost_weights = {0.5, 0.45, 0.05};
+  vector<double> cost_weights = {0.64, 0.33, 0.01, 0.02};
 
   // Instantiate and train the Gaussian Naive Bayes classifier.
   GNB gnb = GNB();

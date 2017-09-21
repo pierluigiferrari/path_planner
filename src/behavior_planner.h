@@ -39,7 +39,7 @@ public:
                    double frontal_buffer = 30.0,
                    double lateral_buffer = 3.0,
                    double speed_tolerance = 0.2,
-                   vector<double> cost_weights = {0.4, 0.4, 0.2});
+                   vector<double> cost_weights = {0.64, 0.33, 0.01, 0.02});
 
   /*
    * Destructor
@@ -98,6 +98,8 @@ private:
   double cost_speed_limit(const vector<vector<double>> &trajectory);
 
   double cost_lane_change(int target_lane);
+
+  double cost_outer_lane(int target_lane);
 
   int num_lanes_; // The number of lanes on the highway
   double speed_limit_; // The current speed limit
