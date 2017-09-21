@@ -12,21 +12,26 @@
 
 using namespace std;
 
-class trajectory_generator {
+class TrajectoryGenerator {
 
 public:
 
   /*
+   * Default constructor
+   */
+  TrajectoryGenerator();
+
+  /*
    * Constructor
    */
-  trajectory_generator(vector<double> map_waypoints_x,
-                       vector<double> map_waypoints_y,
-                       vector<double> map_waypoints_s);
+  TrajectoryGenerator(vector<double> map_waypoints_x,
+                      vector<double> map_waypoints_y,
+                      vector<double> map_waypoints_s);
 
   /*
    * Destructor
    */
-  virtual ~trajectory_generator();
+  virtual ~TrajectoryGenerator();
 
   /*
    *

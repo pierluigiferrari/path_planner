@@ -11,6 +11,9 @@
 #include <vector>
 #include <string>
 #include <math.h>
+#include "gaussian_naive_bayes.h"
+#include "predictor.h"
+#include "trajectory_generator.h"
 
 using namespace std;
 
@@ -28,6 +31,7 @@ public:
    */
   behavior_planner(int num_lanes,
                    double speed_limit,
+                   GNB gnb,
                    vector<double> map_waypoints_x,
                    vector<double> map_waypoints_y,
                    vector<double> map_waypoints_s,
@@ -35,7 +39,7 @@ public:
                    double frontal_buffer = 30.0,
                    double lateral_buffer = 3.0,
                    double speed_tolerance = 0.2,
-                   vector<double> cost_weights = {0.4, 0.4, 0.2});
+                   vector<double> cost_weights = {0.64, 0.33, 0.01, 0.02});
 
   /*
    * Destructor
@@ -95,8 +99,12 @@ private:
 
   double cost_lane_change(int target_lane);
 
+  double cost_outer_lane(int target_lane);
+
   int num_lanes_; // The number of lanes on the highway
   double speed_limit_; // The current speed limit
+  Predictor pred_; // The predictor
+  TrajectoryGenerator tra_gen_; // The trajectory generator
   double speed_tolerance_; // How much the ego car is allowed to deviate from the speed limit in meters per second
   double lateral_buffer_; // The minimum lateral space to a leading car in order to be allowed to pass it
   double frontal_buffer_; // The frontal safety buffer to be maintained to a leading car
