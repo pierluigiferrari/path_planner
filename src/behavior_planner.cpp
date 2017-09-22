@@ -138,16 +138,12 @@ vector<vector<double>> behavior_planner::transition(double car_x,
     if (test_state == "left" && current_state_ == "left") target_lane = target_lane_;
     if (test_state == "right" && current_state_ == "right") target_lane = target_lane_;
 
-    cout << "target_lane: " << target_lane << endl;
-
     // Identify the leading and trailing vehicles in the target lane so that we can adjust our speed.
     vector<int> leading_trailing = get_leading_trailing(target_lane);
 
     // Compute the target velocity based on the vehicles around us and the speed limit.
     double target_velocity = compute_target_velocity(leading_trailing);
     double time_to_reach_tv = fabs(target_velocity - cycle_ref_speed_) / 5.0; // Under normal circumstances, reach the target velocity at an acceleration of 5 m/s^2.
-
-    cout << "target_velocity before safety_brake: " << target_velocity << endl;
 
     // Check if we need to correct the target velocity and the time to reach it to keep a safe distance to the leading vehicle.
     if (test_state == "keep")
@@ -158,7 +154,6 @@ vector<vector<double>> behavior_planner::transition(double car_x,
         target_velocity = safety_velocity[0];
         time_to_reach_tv = safety_velocity[1];
       }
-      cout << "target_velocity after safety_brake: " << target_velocity << endl;
     }
 
     double ref_d = get_ref_d();
@@ -166,7 +161,6 @@ vector<vector<double>> behavior_planner::transition(double car_x,
     // The further we are still away from the target lane, the more time we allow to reach it.
     double time_to_reach_tl = 1.0 + dist_to_target_lane / 4.0;
 
-    std::cout << "Predicting for the ego car." << std::endl;
     // Compute the trajectory we would follow if we chose this state.
     vector<vector<double>> test_trajectory = tra_gen_.generate_trajectory(target_lane,
                                                                           target_velocity,
@@ -217,7 +211,7 @@ vector<vector<double>> behavior_planner::transition(double car_x,
     /*************************************************************************
      * 2.3: Compute the cost of this state.
      *************************************************************************/
-    cout << "test_state: " << test_state << " possible average velocity: ";
+
     // If this test state is safe, compute its cost.
     double cost = 0;
     cost += cost_weights_[0] * cost_velocity(test_trajectory);
@@ -225,11 +219,11 @@ vector<vector<double>> behavior_planner::transition(double car_x,
     cost += cost_weights_[2] * cost_lane_change(target_lane);
     cost += cost_weights_[3] * cost_outer_lane(target_lane);
     // We could add other cost functions here, but let's keep it simple for now.
-    cout << "cost: " << cost << endl;
+
     // Add the cost for this state to the list.
     safe_successor_states_cost.push_back(cost);
   }
-  cout << endl;
+
   // TODO: In case the list of safe successor states is empty at this point
   //       (this can happen if we're in the middle of a lane change and the
   //       lane change suddenly turns out to no longer be safe),
@@ -489,7 +483,7 @@ double behavior_planner::cost_velocity(const vector<vector<double>> &trajectory,
 {
   vector<double> velocity = trajectory[2];
   double average_velocity = accumulate(velocity.begin(), velocity.end(), 0.0) / velocity.size();
-  cout << average_velocity;
+
   if (average_velocity <= speed_limit_) return (-stop_cost / speed_limit_) * average_velocity + stop_cost;
   else return 0.0; // This cost function doesn't care about the speed limit.
 }

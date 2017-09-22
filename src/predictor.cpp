@@ -131,7 +131,6 @@ void Predictor::predict_trajectories(double prediction_horizon, int index)
       vector<double> previous_path_x;
       vector<double> previous_path_y;
 
-      std::cout << "Predicting for an other car." << std::endl;
       // Compute the predicted trajectory for this vehicle.
       vector<vector<double>> pred_trajectory = tra_gen_.generate_trajectory(target_lane,
                                                                             car_v,
@@ -153,8 +152,6 @@ void Predictor::predict_trajectories(double prediction_horizon, int index)
       pred_trajectories_.push_back(pred_trajectory);
     }
   }
-
-  std::cout << "Other car trajectories predicted: " << pred_trajectories_.size() << std::endl;
 }
 
 vector<double> Predictor::predict_location(int index, int k)

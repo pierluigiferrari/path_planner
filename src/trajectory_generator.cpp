@@ -67,15 +67,10 @@ vector<vector<double>> TrajectoryGenerator::generate_trajectory(int target_lane,
     spline_points_x.push_back(car_x);
     spline_points_y.push_back(prev_car_y);
     spline_points_y.push_back(car_y);
-
-    cout << "We have fewer than 2 previous points!" << endl;
-    cout << "spline_points_x[0]: " << prev_car_x << endl;
-    cout << "spline_points_x[1]: " << car_x << endl;
   }
   // Now cover the states in which we have a sufficiently long previous path.
   else
   { // Or else, if we have enough previous path points...
-    cout << "We have more than 2 prev points. How is this possible?" << endl;
     // ...make the last path point of the previous path the new reference position...
     ref_x = previous_path_x[prev_size - 1];
     ref_y = previous_path_y[prev_size - 1];
@@ -117,10 +112,6 @@ vector<vector<double>> TrajectoryGenerator::generate_trajectory(int target_lane,
   spline_points_y.push_back(spline_point_3[1]);
   spline_points_y.push_back(spline_point_4[1]);
   spline_points_y.push_back(spline_point_5[1]);
-
-  cout << "spline_points_x[2]: " << spline_point_3[0] << endl;
-  cout << "spline_points_x[3]: " << spline_point_4[0] << endl;
-  cout << "spline_points_x[4]: " << spline_point_5[0] << endl;
 
   // Transform the spline points into the car's local coordinate system
   for (int i = 0; i < spline_points_x.size(); i++)
