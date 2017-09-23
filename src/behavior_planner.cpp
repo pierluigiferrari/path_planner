@@ -422,7 +422,7 @@ vector<double> behavior_planner::safety_brake()
   else return {-1.0, -1.0};
 }
 
-bool behavior_planner::lane_change_safe(vector<vector<double>> trajectory, int target_lane)
+bool behavior_planner::lane_change_safe(vector<vector<double>>& trajectory, int target_lane)
 {
   // Check whether following the suggested trajectory would likely get the
   // ego car too close to other vehicles.
