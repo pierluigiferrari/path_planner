@@ -17,7 +17,7 @@
 
 using namespace std;
 
-behavior_planner::behavior_planner(int num_lanes,
+BehaviorPlanner::BehaviorPlanner(int num_lanes,
                                    double speed_limit,
                                    GNB gnb,
                                    vector<double> map_waypoints_x,
@@ -45,9 +45,9 @@ behavior_planner::behavior_planner(int num_lanes,
   tra_gen_ = TrajectoryGenerator(map_waypoints_x, map_waypoints_y, map_waypoints_s);
 }
 
-behavior_planner::~behavior_planner() {}
+BehaviorPlanner::~BehaviorPlanner() {}
 
-vector<vector<double>> behavior_planner::transition(double car_x,
+vector<vector<double>> BehaviorPlanner::transition(double car_x,
                                                     double car_y,
                                                     double car_s,
                                                     double car_d,
@@ -266,7 +266,7 @@ vector<vector<double>> behavior_planner::transition(double car_x,
   return {next_x_vals, next_y_vals};
 }
 
-double behavior_planner::get_ref_s()
+double BehaviorPlanner::get_ref_s()
 {
   if (previous_path_x_.size() > 0)
   {
@@ -275,7 +275,7 @@ double behavior_planner::get_ref_s()
   else return car_s_;
 }
 
-double behavior_planner::get_ref_d()
+double BehaviorPlanner::get_ref_d()
 {
   if (previous_path_x_.size() > 0)
   {
@@ -284,12 +284,12 @@ double behavior_planner::get_ref_d()
   else return car_d_;
 }
 
-double behavior_planner::get_ref_t()
+double BehaviorPlanner::get_ref_t()
 {
   return previous_path_x_.size() * 0.02;
 }
 
-vector<int> behavior_planner::get_leading_trailing(int lane)
+vector<int> BehaviorPlanner::get_leading_trailing(int lane)
 {
   int leading_car = -1; // The index of the leading car in the sensor fusion table
   int trailing_car = -1; // The index of the trailing car in the sensor fusion table
@@ -335,7 +335,7 @@ vector<int> behavior_planner::get_leading_trailing(int lane)
   return {leading_car, trailing_car};
 }
 
-double behavior_planner::compute_target_velocity(vector<int> leading_trailing)
+double BehaviorPlanner::compute_target_velocity(vector<int> leading_trailing)
 {
   int leading_car = leading_trailing[0];
 
@@ -366,7 +366,7 @@ double behavior_planner::compute_target_velocity(vector<int> leading_trailing)
   else return leading_car_v;
 }
 
-vector<double> behavior_planner::safety_brake()
+vector<double> BehaviorPlanner::safety_brake()
 {
   // If we are not sensing any other objects around us, we definitely don't need to brake for safety reasons.
   if (sensor_fusion_.size() == 0) return {-1.0, -1.0};
@@ -422,7 +422,7 @@ vector<double> behavior_planner::safety_brake()
   else return {-1.0, -1.0};
 }
 
-bool behavior_planner::lane_change_safe(vector<vector<double>>& trajectory, int target_lane)
+bool BehaviorPlanner::lane_change_safe(vector<vector<double>>& trajectory, int target_lane)
 {
   // Check whether following the suggested trajectory would likely get the
   // ego car too close to other vehicles.
@@ -479,7 +479,7 @@ bool behavior_planner::lane_change_safe(vector<vector<double>>& trajectory, int 
   return true;
 }
 
-double behavior_planner::cost_velocity(const vector<vector<double>> &trajectory, double stop_cost)
+double BehaviorPlanner::cost_velocity(const vector<vector<double>> &trajectory, double stop_cost)
 {
   vector<double> velocity = trajectory[2];
   double average_velocity = accumulate(velocity.begin(), velocity.end(), 0.0) / velocity.size();
@@ -488,7 +488,7 @@ double behavior_planner::cost_velocity(const vector<vector<double>> &trajectory,
   else return 0.0; // This cost function doesn't care about the speed limit.
 }
 
-double behavior_planner::cost_speed_limit(const vector<vector<double>> &trajectory)
+double BehaviorPlanner::cost_speed_limit(const vector<vector<double>> &trajectory)
 {
   vector<double> velocity = trajectory[2];
 
@@ -500,14 +500,14 @@ double behavior_planner::cost_speed_limit(const vector<vector<double>> &trajecto
   return 0.0;
 }
 
-double behavior_planner::cost_lane_change(int target_lane)
+double BehaviorPlanner::cost_lane_change(int target_lane)
 {
   int car_lane = (int) get_ref_d() / 4;
   if (target_lane != car_lane) return 1.0;
   return 0.0;
 }
 
-double behavior_planner::cost_outer_lane(int target_lane)
+double BehaviorPlanner::cost_outer_lane(int target_lane)
 {
   if (target_lane == 0 || target_lane == num_lanes_ - 1) return 1.0;
   else return 0.0;

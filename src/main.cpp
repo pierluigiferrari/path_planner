@@ -86,17 +86,17 @@ int main() {
 
   // Instantiate the behavior planner. It will handle all prediction, planning,
   // and trajectory generation.
-  behavior_planner planner(num_lanes,
-                           speed_limit_mps,
-                           gnb,
-                           map_waypoints_x,
-                           map_waypoints_y,
-                           map_waypoints_s,
-                           planning_horizon,
-                           frontal_buffer,
-                           lateral_buffer,
-                           speed_tolerance,
-                           cost_weights);
+  BehaviorPlanner planner(num_lanes,
+                          speed_limit_mps,
+                          gnb,
+                          map_waypoints_x,
+                          map_waypoints_y,
+                          map_waypoints_s,
+                          planning_horizon,
+                          frontal_buffer,
+                          lateral_buffer,
+                          speed_tolerance,
+                          cost_weights);
 
   // As an initial value, set the ego car's current lane as the target lane for the planner.
   planner.target_lane_ = 1;

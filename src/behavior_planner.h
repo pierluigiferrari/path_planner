@@ -17,7 +17,7 @@
 
 using namespace std;
 
-class behavior_planner
+class BehaviorPlanner
 {
 public:
 
@@ -38,22 +38,22 @@ public:
    * @param cost_weights The weights of the cost functions used to determine the best successor state.
    *
    */
-  behavior_planner(int num_lanes,
-                   double speed_limit,
-                   GNB gnb,
-                   vector<double> map_waypoints_x,
-                   vector<double> map_waypoints_y,
-                   vector<double> map_waypoints_s,
-                   double planning_horizon = 1.0,
-                   double frontal_buffer = 30.0,
-                   double lateral_buffer = 3.0,
-                   double speed_tolerance = 0.2,
-                   vector<double> cost_weights = {0.64, 0.33, 0.01, 0.02});
+  BehaviorPlanner(int num_lanes,
+                  double speed_limit,
+                  GNB gnb,
+                  vector<double> map_waypoints_x,
+                  vector<double> map_waypoints_y,
+                  vector<double> map_waypoints_s,
+                  double planning_horizon = 1.0,
+                  double frontal_buffer = 30.0,
+                  double lateral_buffer = 3.0,
+                  double speed_tolerance = 0.2,
+                  vector<double> cost_weights = {0.64, 0.33, 0.01, 0.02});
 
   /*
    * Destructor
    */
-  virtual ~behavior_planner();
+  virtual ~BehaviorPlanner();
 
   /*
    * Computes the best next state and returns a trajectory for that state.
