@@ -27,9 +27,9 @@ public:
    * @param num_lanes The constant number of lanes on the same side of the road.
    * @param speed_limit The constant speed limit.
    * @param gnb A Gaussian Naive Bayes classifier object.
-   * @param map_waypoints_x The list of Cartesian x coordinates of the waypoints that define the track.
-   * @param map_waypoints_y The list of Cartesian y coordinates of the waypoints that define the track.
-   * @param map_waypoints_s The list of Frenet s coordinates of the waypoints that define the track.
+   * @param map_waypoints_x The list of Cartesian x coordinates of the waypoints that define the track in meters.
+   * @param map_waypoints_y The list of Cartesian y coordinates of the waypoints that define the track in meters.
+   * @param map_waypoints_s The list of Frenet s coordinates of the waypoints that define the track in meters.
    * @param planning_horizon How many seconds into the future the planner should plan. Defaults to 1 second.
    * @param frontal_buffer The minimum distance in meters that the ego car tries to keep to any leading cars.
    * @param lateral_buffer The minimum distance in meters in every direction that the ego car tries to keep to
