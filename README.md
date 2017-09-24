@@ -18,9 +18,9 @@ Its behavioral planning engine is based on a finite state machine (FSM) and is l
 
 ### Demo
 
-Click on the image below to see the path planner in action:
+Click on the image below to watch a demo of the path planner in action:
 
-
+[![path_planner_demo](images/path_planner_demo.png)](https://www.youtube.com/watch?v=ZfNJykio03E)
 
 ### Dependencies
 
