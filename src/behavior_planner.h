@@ -81,18 +81,12 @@ public:
    *                       - `(vx, vy)` are the components of the object's velocity vector in meters per second.
    *                       - `(s, d)` are the Frenet coordinates of the object's last measured location in meters.
    *
-   * @returns A 2-dimensional vector of shape `(N, 5)` containing the planned path in the form of a list of
-   *          the next `N` path points in the format `[x, y, v, a, yaw]`.
+   * @returns A 2-dimensional vector of shape `(2, N)` containing the planned path in the form of a list of
+   *          the next `N` path points in the format `[x, y]`.
    *          The temporal distance between any two given path points and between the car's last measured state
    *          and the first path point is 20 milliseconds, i.e. the ego car must pass each subsequent path point
    *          in 20 millisecond increments.
    *           - `(x, y)` are the Cartesian coordinates of the path point in meters.
-   *           - `v` is the L2 norm of the velocity vector at that path point in meters per second,
-   *                 i.e. the car's scalar velocity.
-   *           - `a` is the L2 norm of the acceleration vector at that path point in meters per second per second,
-   *                 i.e. the car's scalar acceleration.
-   *           -`yaw` is the angle of the car's heading at that path point measured counter-clockwise
-   *                  against the x-axis in radians.
    */
   vector<vector<double>> transition(double car_x,
                                     double car_y,

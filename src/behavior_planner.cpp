@@ -74,7 +74,7 @@ vector<vector<double>> BehaviorPlanner::transition(double car_x,
   pred_.update(sensor_fusion);
   // The prediction horizon for other cars needs to be equal to
   // the planning horizon of the ego car plus the length of the current path.
-  pred_.predict_trajectories(planning_horizon_ + previous_path_x.size());
+  pred_.predict_trajectories(planning_horizon_ + previous_path_x.size() * 0.02);
 
   /***************************************************************************
    * 1: Get all generally possible successor states from the current state.
@@ -309,8 +309,8 @@ vector<int> BehaviorPlanner::get_leading_trailing(int lane)
   {
     if (sensor_fusion_[i][6] < 0) continue;
 
-    int time_step = ref_t / 0.02;
-    vector<double> other_car_pos_xy = pred_.predict_location(i, time_step); // Predict this car's position at the reference time.
+    int ref_index = ref_t / 0.02 - 1;
+    vector<double> other_car_pos_xy = pred_.predict_location(i, ref_index); // Predict this car's position at the reference time.
     vector<double> other_car_pos_frenet = get_frenet(other_car_pos_xy[0], other_car_pos_xy[1], other_car_pos_xy[4], map_waypoints_x_, map_waypoints_y_);
 
     double other_car_s = other_car_pos_frenet[0];
@@ -324,7 +324,7 @@ vector<int> BehaviorPlanner::get_leading_trailing(int lane)
         leading_car = i; // ...then this becomes our new closest leading car.
         leading_s = other_car_s;
       }
-      if (other_car_s < end_path_s_ && other_car_s > trailing_s) // If this car will be both behind us and closer than any other trailing car we have found so far...
+      if (other_car_s < ref_s && other_car_s > trailing_s) // If this car will be both behind us and closer than any other trailing car we have found so far...
       {
         trailing_car = i; // ...then this becomes our new closest trailing car.
         trailing_s = other_car_s;
@@ -349,8 +349,8 @@ double BehaviorPlanner::compute_target_velocity(vector<int> leading_trailing)
 
   // Predict where the leading vehicle will be
   // by the time the ego car will be at `ent_path_s_`.
-  int time_step = ref_t / 0.02;
-  vector<double> leading_car_pos_xy = pred_.predict_location(leading_car, time_step); // Predict this car's position at the reference time.
+  int ref_index = ref_t / 0.02 - 1;
+  vector<double> leading_car_pos_xy = pred_.predict_location(leading_car, ref_index); // Predict this car's position at the reference time.
   vector<double> leading_car_pos_frenet = get_frenet(leading_car_pos_xy[0], leading_car_pos_xy[1], leading_car_pos_xy[4], map_waypoints_x_, map_waypoints_y_);
 
   double leading_car_s = leading_car_pos_frenet[0];
@@ -391,8 +391,8 @@ vector<double> BehaviorPlanner::safety_brake()
   {
     if (sensor_fusion_[i][6] < 0) continue;
 
-    int time_step = ref_t / 0.02;
-    vector<double> other_car_pos_xy = pred_.predict_location(i, time_step); // Predict this car's position at the reference time.
+    int ref_index = ref_t / 0.02 - 1;
+    vector<double> other_car_pos_xy = pred_.predict_location(i, ref_index); // Predict this car's position at the reference time.
     vector<double> other_car_pos_frenet = get_frenet(other_car_pos_xy[0], other_car_pos_xy[1], other_car_pos_xy[4], map_waypoints_x_, map_waypoints_y_);
 
     double other_car_s = other_car_pos_frenet[0];
@@ -438,8 +438,8 @@ bool BehaviorPlanner::lane_change_safe(vector<vector<double>>& trajectory, int t
     {
       if (sensor_fusion_[j][6] < 0) continue;
 
-      int time_step = ref_t / 0.02;
-      vector<double> other_car_pos_xy = pred_.predict_location(j, time_step + i); // Predict this car's position at the reference time.
+      int ref_index = ref_t / 0.02;
+      vector<double> other_car_pos_xy = pred_.predict_location(j, ref_index + i); // Predict this car's position at the reference time.
       vector<double> other_car_pos_frenet = get_frenet(other_car_pos_xy[0], other_car_pos_xy[1], other_car_pos_xy[4], map_waypoints_x_, map_waypoints_y_);
 
       double other_car_s = other_car_pos_frenet[0];

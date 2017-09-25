@@ -53,9 +53,6 @@ public:
                                              double end_path_s,
                                              double end_path_d);
 
-  // Returns the trajectory point at time t
-  double operator() (double t) const;
-
 private:
   // The waypoints that define the map. Necessary to convert between Cartesian and Frenet coordinates.
   vector<double> map_waypoints_x_;
