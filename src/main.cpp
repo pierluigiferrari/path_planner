@@ -74,6 +74,7 @@ int main() {
   double speed_limit_mph = 50.0;
   double speed_limit_mps = mph2mps(speed_limit_mph); // Speed limit in meters per second
   double planning_horizon = 1.0; // The time horizon for the path planner in seconds
+  int num_prev_path_points_keep = 50;
   double frontal_buffer = 20.0;
   double lateral_buffer = 3.0;
   double speed_tolerance = 0.2;
@@ -93,6 +94,7 @@ int main() {
                           map_waypoints_y,
                           map_waypoints_s,
                           planning_horizon,
+                          num_prev_path_points_keep,
                           frontal_buffer,
                           lateral_buffer,
                           speed_tolerance,

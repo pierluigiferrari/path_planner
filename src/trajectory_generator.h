@@ -50,8 +50,9 @@ public:
                                              double end_path_v,
                                              vector<double> previous_path_x,
                                              vector<double> previous_path_y,
-                                             double end_path_s,
-                                             double end_path_d);
+                                             int num_prev_path_points_keep,
+                                             double ref_s,
+                                             double ref_d);
 
   // Returns the trajectory point at time t
   double operator() (double t) const;

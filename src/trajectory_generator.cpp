@@ -41,12 +41,10 @@ vector<vector<double>> TrajectoryGenerator::generate_trajectory(int target_lane,
                                                                 double end_path_v,
                                                                 vector<double> previous_path_x,
                                                                 vector<double> previous_path_y,
-                                                                double end_path_s,
-                                                                double end_path_d)
+                                                                int num_prev_path_points_keep,
+                                                                double ref_s,
+                                                                double ref_d)
 {
-  // Check how many path points we have left from the previous path.
-  int prev_size = previous_path_x.size();
-
   // Create lists to store the spline end points, i.e. the points between which we want the splines to interpolate
   vector<double> spline_points_x;
   vector<double> spline_points_y;
@@ -57,7 +55,7 @@ vector<vector<double>> TrajectoryGenerator::generate_trajectory(int target_lane,
   double ref_yaw = deg2rad(car_yaw);
 
   // Cover the initialization state, i.e. the state in which we have less than 2 path points in our previous path.
-  if (prev_size < 2)
+  if (num_prev_path_points_keep < 2)
   { // If we have fewer than 2 path points in our previous path...
     // ...generate a pseudo-previous position by just going backwards from where the car is now...
     double prev_car_x = car_x - cos(car_yaw);
@@ -72,11 +70,11 @@ vector<vector<double>> TrajectoryGenerator::generate_trajectory(int target_lane,
   else
   { // Or else, if we have enough previous path points...
     // ...make the last path point of the previous path the new reference position...
-    ref_x = previous_path_x[prev_size - 1];
-    ref_y = previous_path_y[prev_size - 1];
+    ref_x = previous_path_x[num_prev_path_points_keep - 1];
+    ref_y = previous_path_y[num_prev_path_points_keep - 1];
     // ...and use the second-to-last path point to get the tangent to the car's heading at that position...
-    double prev_car_x = previous_path_x[prev_size - 2];
-    double prev_car_y = previous_path_y[prev_size - 2];
+    double prev_car_x = previous_path_x[num_prev_path_points_keep - 2];
+    double prev_car_y = previous_path_y[num_prev_path_points_keep - 2];
     // ...and compute the reference yaw from these two points...
     ref_yaw = atan2(ref_y - prev_car_y, ref_x - prev_car_x);
     // ...and push the points onto the spline point list
@@ -93,10 +91,6 @@ vector<vector<double>> TrajectoryGenerator::generate_trajectory(int target_lane,
   // the s coordinate by which the transition from the current lane to the target lane
   // must be completed.
   double avg_speed = 0.5 * (end_path_v + target_velocity);
-
-  double ref_s;
-  if (prev_size > 0) ref_s = end_path_s;
-  else ref_s = car_s;
 
   //vector<double> spline_point_3 = get_xy(ref_s + time_to_reach_tl * avg_speed, (2 + 4 * (double) target_lane), map_waypoints_s_, map_waypoints_x_, map_waypoints_y_);
   //vector<double> spline_point_4 = get_xy(ref_s + 2 * time_to_reach_tl * avg_speed, (2 + 4 * (double) target_lane), map_waypoints_s_, map_waypoints_x_, map_waypoints_y_);
@@ -141,13 +135,13 @@ vector<vector<double>> TrajectoryGenerator::generate_trajectory(int target_lane,
   if (!full_path) // If we're just "filling up" the points of an existing previous path...
   {
     // ...add all remaining previous path points to the new path, if any,...
-    for (int i = 0; i < prev_size; i++)
+    for (int i = 0; i < num_prev_path_points_keep; i++)
     {
       next_x_vals.push_back(previous_path_x[i]);
       next_y_vals.push_back(previous_path_y[i]);
     }
     // ...and set the number of path points to be generated accordingly.
-    num_new_path_points = planning_horizon / 0.02 - prev_size;
+    num_new_path_points = planning_horizon / 0.02 - num_prev_path_points_keep;
   }
   // Otherwise, generate a full path.
   else num_new_path_points = planning_horizon / 0.02;
@@ -211,11 +205,14 @@ vector<vector<double>> TrajectoryGenerator::generate_trajectory(int target_lane,
     next_x_vals.push_back(next_x);
     next_y_vals.push_back(next_y);
 
-    double next_yaw;
-    if (i == 0) next_yaw = atan2(next_y_vals[i] - car_y, next_x_vals[i - 1] - car_x);
-    else        next_yaw = atan2(next_y_vals[i] - next_y_vals[i - 1], next_x_vals[i] - next_x_vals[i - 1]);
+    if (full_path)
+    {
+      double next_yaw;
+      if (i == 0) next_yaw = atan2(next_y_vals[i] - car_y, next_x_vals[i - 1] - car_x);
+      else        next_yaw = atan2(next_y_vals[i] - next_y_vals[i - 1], next_x_vals[i] - next_x_vals[i - 1]);
 
-    next_yaw_vals.push_back(next_yaw);
+      next_yaw_vals.push_back(next_yaw);
+    }
   }
 
   return {next_x_vals, next_y_vals, next_v_vals, next_a_vals, next_yaw_vals};

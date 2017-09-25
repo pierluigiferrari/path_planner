@@ -31,6 +31,10 @@ public:
    * @param map_waypoints_y The list of Cartesian y coordinates of the waypoints that define the track in meters.
    * @param map_waypoints_s The list of Frenet s coordinates of the waypoints that define the track in meters.
    * @param planning_horizon How many seconds into the future the planner should plan. Defaults to 1 second.
+   * @param num_prev_path_points_keep The number of points from the previously planned path to take over for the
+   *                                  new path. A higher number leads to a smoother transition between the last
+   *                                  planned path and the new planned path, while a lower number leads to faster
+   *                                  reaction to the environment.
    * @param frontal_buffer The minimum distance in meters that the ego car tries to keep to any leading cars.
    * @param lateral_buffer The minimum distance in meters in every direction that the ego car tries to keep to
    *                       any objects around it.
@@ -45,6 +49,7 @@ public:
                   vector<double> map_waypoints_y,
                   vector<double> map_waypoints_s,
                   double planning_horizon = 1.0,
+                  int num_prev_path_points_keep = 5,
                   double frontal_buffer = 30.0,
                   double lateral_buffer = 3.0,
                   double speed_tolerance = 0.2,
@@ -81,18 +86,12 @@ public:
    *                       - `(vx, vy)` are the components of the object's velocity vector in meters per second.
    *                       - `(s, d)` are the Frenet coordinates of the object's last measured location in meters.
    *
-   * @returns A 2-dimensional vector of shape `(N, 5)` containing the planned path in the form of a list of
-   *          the next `N` path points in the format `[x, y, v, a, yaw]`.
+   * @returns A 2-dimensional vector of shape `(2, N)` containing the planned path in the form of a list of
+   *          the next `N` path points in the format `[x, y]`.
    *          The temporal distance between any two given path points and between the car's last measured state
    *          and the first path point is 20 milliseconds, i.e. the ego car must pass each subsequent path point
    *          in 20 millisecond increments.
    *           - `(x, y)` are the Cartesian coordinates of the path point in meters.
-   *           - `v` is the L2 norm of the velocity vector at that path point in meters per second,
-   *                 i.e. the car's scalar velocity.
-   *           - `a` is the L2 norm of the acceleration vector at that path point in meters per second per second,
-   *                 i.e. the car's scalar acceleration.
-   *           -`yaw` is the angle of the car's heading at that path point measured counter-clockwise
-   *                  against the x-axis in radians.
    */
   vector<vector<double>> transition(double car_x,
                                     double car_y,
@@ -179,19 +178,22 @@ private:
   bool lane_change_safe(vector<vector<double>>& trajectory, int target_lane);
 
   /*
-   * Returns the Frenet s coordinate in meters of the last point of the ego car's current path.
+   * Returns the time step index of the ego car's current path that we would
+   * like to keep for the new path.
    */
-  double get_ref_s();
+  int get_ref_index();
 
   /*
-   * Returns the Frenet d coordinate in meters of the last point of the ego car's current path.
-   */
-  double get_ref_d();
-
-  /*
-   * Returns the time in seconds between the present and the last point of the ego car's current path.
+   * Returns the time in seconds between the present and the last point of the ego
+   * car's current path that we would like to keep for the new path..
    */
   double get_ref_t();
+
+  /*
+   * Returns the Frenet (s, d) coordinates in meters of the last point of the ego
+   * car's current path that we would like to keep for the new path.
+   */
+  vector<double> get_ref_frenet();
 
   /*
    * Returns a value within `[0, stop_cost]`, the cost of a trajectory regarding its average velocity.
@@ -219,8 +221,10 @@ private:
    */
   double cost_outer_lane(int target_lane);
 
+  vector<vector<double>> last_planned_path_; // The latest planned path
   int num_lanes_; // The number of lanes on the highway
   double speed_limit_; // The current speed limit
+  int num_prev_path_points_keep_; // The maximum number of path points from the previous path to take over for the next path.
   Predictor pred_; // The predictor
   TrajectoryGenerator tra_gen_; // The trajectory generator
   double speed_tolerance_; // How much the ego car is allowed to deviate from the speed limit in meters per second

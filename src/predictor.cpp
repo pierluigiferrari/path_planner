@@ -146,8 +146,9 @@ void Predictor::predict_trajectories(double prediction_horizon, int index)
                                                                             car_v,
                                                                             previous_path_x,
                                                                             previous_path_y,
-                                                                            0.0,
-                                                                            0.0);
+                                                                            0,
+                                                                            car_s,
+                                                                            car_d);
 
       pred_trajectories_.push_back(pred_trajectory);
     }

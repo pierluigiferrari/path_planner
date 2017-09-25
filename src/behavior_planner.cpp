@@ -18,20 +18,22 @@
 using namespace std;
 
 BehaviorPlanner::BehaviorPlanner(int num_lanes,
-                                   double speed_limit,
-                                   GNB gnb,
-                                   vector<double> map_waypoints_x,
-                                   vector<double> map_waypoints_y,
-                                   vector<double> map_waypoints_s,
-                                   double planning_horizon,
-                                   double frontal_buffer,
-                                   double lateral_buffer,
-                                   double speed_tolerance,
-                                   vector<double> cost_weights)
+                                 double speed_limit,
+                                 GNB gnb,
+                                 vector<double> map_waypoints_x,
+                                 vector<double> map_waypoints_y,
+                                 vector<double> map_waypoints_s,
+                                 double planning_horizon,
+                                 int num_prev_path_points_keep,
+                                 double frontal_buffer,
+                                 double lateral_buffer,
+                                 double speed_tolerance,
+                                 vector<double> cost_weights)
 {
   current_state_ = "keep";
   cycle_ref_speed_ = 0;
   planning_horizon_ = planning_horizon;
+  num_prev_path_points_keep_ = num_prev_path_points_keep;
   frontal_buffer_ = frontal_buffer;
   lateral_buffer_ = lateral_buffer;
   num_lanes_ = num_lanes;
@@ -48,16 +50,16 @@ BehaviorPlanner::BehaviorPlanner(int num_lanes,
 BehaviorPlanner::~BehaviorPlanner() {}
 
 vector<vector<double>> BehaviorPlanner::transition(double car_x,
-                                                    double car_y,
-                                                    double car_s,
-                                                    double car_d,
-                                                    double car_yaw,
-                                                    double car_speed,
-                                                    vector<double> previous_path_x,
-                                                    vector<double> previous_path_y,
-                                                    double end_path_s,
-                                                    double end_path_d,
-                                                    vector<vector<double>> sensor_fusion)
+                                                   double car_y,
+                                                   double car_s,
+                                                   double car_d,
+                                                   double car_yaw,
+                                                   double car_speed,
+                                                   vector<double> previous_path_x,
+                                                   vector<double> previous_path_y,
+                                                   double end_path_s,
+                                                   double end_path_d,
+                                                   vector<vector<double>> sensor_fusion)
 {
   // Update all observed variables.
   car_x_ = car_x;
@@ -73,8 +75,9 @@ vector<vector<double>> BehaviorPlanner::transition(double car_x,
   sensor_fusion_ = sensor_fusion;
   pred_.update(sensor_fusion);
   // The prediction horizon for other cars needs to be equal to
-  // the planning horizon of the ego car plus the length of the current path.
-  pred_.predict_trajectories(planning_horizon_ + previous_path_x.size());
+  // the planning horizon of the ego car plus the temporal length to be kept of the previous path.
+  int num_prev_path_points_keep = (int) min((double) previous_path_x.size(), (double) num_prev_path_points_keep_);
+  pred_.predict_trajectories(planning_horizon_ + num_prev_path_points_keep * 0.02);
 
   /***************************************************************************
    * 1: Get all generally possible successor states from the current state.
@@ -156,7 +159,10 @@ vector<vector<double>> BehaviorPlanner::transition(double car_x,
       }
     }
 
-    double ref_d = get_ref_d();
+    vector<double> ref_pos_frenet = get_ref_frenet();
+    double ref_s = ref_pos_frenet[0];
+    double ref_d = ref_pos_frenet[1];
+
     double dist_to_target_lane = fabs(ref_d - (2 + target_lane_ * 4));
     // The further we are still away from the target lane, the more time we allow to reach it.
     double time_to_reach_tl = 1.0 + dist_to_target_lane / 4.0;
@@ -176,8 +182,9 @@ vector<vector<double>> BehaviorPlanner::transition(double car_x,
                                                                           cycle_ref_speed_,
                                                                           previous_path_x,
                                                                           previous_path_y,
-                                                                          end_path_s,
-                                                                          end_path_d);
+                                                                          num_prev_path_points_keep,
+                                                                          ref_s,
+                                                                          ref_d);
 
     /*************************************************************************
      * 2.2: Check whether this state is safe to transition into.
@@ -246,47 +253,54 @@ vector<vector<double>> BehaviorPlanner::transition(double car_x,
   // the final trajectory will be a combination of newly generated path points
   // and the remaining previously generated path points.
 
-  vector<double> next_x_vals = previous_path_x_;
-  vector<double> next_y_vals = previous_path_y_;
+  vector<double> next_x_vals;
+  vector<double> next_y_vals;
+  for (int i = 0; i < num_prev_path_points_keep; i++)
+  {
+    next_x_vals.push_back(previous_path_x_[i]);
+    next_y_vals.push_back(previous_path_y_[i]);
+  }
   // Fill up the previously generated path points with the newly generated ones
   // from the best successor state.
-  int num_new_path_points = planning_horizon_ / 0.02 - previous_path_x_.size();
+  int num_new_path_points = planning_horizon_ / 0.02 - num_prev_path_points_keep;
   for (int i = 0; i < num_new_path_points; i++)
   {
     next_x_vals.push_back(trajectories[arg_min][0][i]);
     next_y_vals.push_back(trajectories[arg_min][1][i]);
   }
   // Set the cycle reference speed as the speed at the last point of this trajectory
-  cycle_ref_speed_ = trajectories[arg_min][2][num_new_path_points - 1];
+  cycle_ref_speed_ = trajectories[arg_min][2][num_new_path_points - 1]; // TODO: The third index here is incorrect
 
   // Store the target lane, it will be our memory in future iterations for checking
   // when (and whether) a lane change was successful.
   target_lane_ = target_lanes[arg_min];
 
+  // Store the selected trajectory separately
+  last_planned_path_ = trajectories[arg_min]; // TODO: Wherever we use this, it's probably not what we think it is
+
   return {next_x_vals, next_y_vals};
 }
 
-double BehaviorPlanner::get_ref_s()
+int BehaviorPlanner::get_ref_index()
 {
-  if (previous_path_x_.size() > 0)
-  {
-    return end_path_s_;
-  }
-  else return car_s_;
+  return (int) min((double) previous_path_x_.size(), (double) num_prev_path_points_keep_) - 1;
 }
 
-double BehaviorPlanner::get_ref_d()
+vector<double> BehaviorPlanner::get_ref_frenet()
 {
   if (previous_path_x_.size() > 0)
   {
-    return end_path_d_;
+    int ref_index = get_ref_index();
+    int num_points_passed = last_planned_path_[0].size() - previous_path_x_.size();
+    vector<double> ref_pos_frenet = get_frenet(previous_path_x_[ref_index], previous_path_y_[ref_index], last_planned_path_[4][ref_index + num_points_passed], map_waypoints_x_, map_waypoints_y_);
+    return ref_pos_frenet;
   }
-  else return car_d_;
+  else return {car_s_, car_d_};
 }
 
 double BehaviorPlanner::get_ref_t()
 {
-  return previous_path_x_.size() * 0.02;
+  return min((double) previous_path_x_.size(), (double) num_prev_path_points_keep_) * 0.02;
 }
 
 vector<int> BehaviorPlanner::get_leading_trailing(int lane)
@@ -296,21 +310,17 @@ vector<int> BehaviorPlanner::get_leading_trailing(int lane)
 
   // Set the reference s coordinate. This is the s coordinate where the ego car
   // will be at the end of the current path.
-  double ref_s = get_ref_s();
+  double ref_s = get_ref_frenet()[0];
+  int ref_index = get_ref_index();
 
   double leading_s = ref_s + 10000; // Just some large enough number
   double trailing_s = ref_s - 10000; // Just some small enough number
-
-  // The reference time is the time of the last path point of the current path.
-  // This is the time for which we want to predict the positions of the other vehicles.
-  double ref_t = get_ref_t();
 
   for (int i = 0; i < sensor_fusion_.size(); i++) // Iterate over all cars in the sensor fusion data.
   {
     if (sensor_fusion_[i][6] < 0) continue;
 
-    int time_step = ref_t / 0.02;
-    vector<double> other_car_pos_xy = pred_.predict_location(i, time_step); // Predict this car's position at the reference time.
+    vector<double> other_car_pos_xy = pred_.predict_location(i, ref_index); // Predict this car's position at the reference time.
     vector<double> other_car_pos_frenet = get_frenet(other_car_pos_xy[0], other_car_pos_xy[1], other_car_pos_xy[4], map_waypoints_x_, map_waypoints_y_);
 
     double other_car_s = other_car_pos_frenet[0];
@@ -319,12 +329,12 @@ vector<int> BehaviorPlanner::get_leading_trailing(int lane)
 
     if (other_car_lane == lane) // If this car will be in the lane of interest...
     {
-      if (other_car_s > end_path_s_ && other_car_s < leading_s) // ...and if it will be both ahead of us and closer than any other leading car we have found so far...
+      if (other_car_s > ref_s && other_car_s < leading_s) // ...and if it will be both ahead of us and closer than any other leading car we have found so far...
       {
         leading_car = i; // ...then this becomes our new closest leading car.
         leading_s = other_car_s;
       }
-      if (other_car_s < end_path_s_ && other_car_s > trailing_s) // If this car will be both behind us and closer than any other trailing car we have found so far...
+      if (other_car_s < ref_s && other_car_s > trailing_s) // If this car will be both behind us and closer than any other trailing car we have found so far...
       {
         trailing_car = i; // ...then this becomes our new closest trailing car.
         trailing_s = other_car_s;
@@ -344,13 +354,10 @@ double BehaviorPlanner::compute_target_velocity(vector<int> leading_trailing)
 
   // Check how far away the leading vehicle is. We only adjust our speed if it is
   // within our frontal buffer distance.
-  double ref_s = get_ref_s();
-  double ref_t = get_ref_t();
+  double ref_s = get_ref_frenet()[0];
+  int ref_index = get_ref_index();
 
-  // Predict where the leading vehicle will be
-  // by the time the ego car will be at `ent_path_s_`.
-  int time_step = ref_t / 0.02;
-  vector<double> leading_car_pos_xy = pred_.predict_location(leading_car, time_step); // Predict this car's position at the reference time.
+  vector<double> leading_car_pos_xy = pred_.predict_location(leading_car, ref_index); // Predict this car's position at the reference time.
   vector<double> leading_car_pos_frenet = get_frenet(leading_car_pos_xy[0], leading_car_pos_xy[1], leading_car_pos_xy[4], map_waypoints_x_, map_waypoints_y_);
 
   double leading_car_s = leading_car_pos_frenet[0];
@@ -380,19 +387,16 @@ vector<double> BehaviorPlanner::safety_brake()
 
   // Set the reference s coordinate. This is the s coordinate where the ego car
   // will be at the end of the current path.
-  double ref_s = get_ref_s();
-  double ref_d = get_ref_d();
-
-  // The reference time is the time of the last path point of the current path.
-  // This is the time for which we want to predict the positions of the other vehicles.
-  double ref_t = get_ref_t();
+  vector<double> ref_pos_frenet = get_ref_frenet();
+  double ref_s = ref_pos_frenet[0];
+  double ref_d = ref_pos_frenet[1];
+  int ref_index = get_ref_index();
 
   for (int i = 0; i < sensor_fusion_.size(); i++) // Iterate over all cars in the sensor fusion data.
   {
     if (sensor_fusion_[i][6] < 0) continue;
 
-    int time_step = ref_t / 0.02;
-    vector<double> other_car_pos_xy = pred_.predict_location(i, time_step); // Predict this car's position at the reference time.
+    vector<double> other_car_pos_xy = pred_.predict_location(i, ref_index); // Predict this car's position at the reference time.
     vector<double> other_car_pos_frenet = get_frenet(other_car_pos_xy[0], other_car_pos_xy[1], other_car_pos_xy[4], map_waypoints_x_, map_waypoints_y_);
 
     double other_car_s = other_car_pos_frenet[0];
@@ -429,8 +433,8 @@ bool BehaviorPlanner::lane_change_safe(vector<vector<double>>& trajectory, int t
   // For each time point in this trajectory, check if the ego car would be
   // too close to any other vehicle's position at that same time point.
 
-  // The trajectory to be tested begins at the reference time.
-  double ref_t = get_ref_t();
+  // The trajectory to be tested begins one time step after the reference time step.
+  int ref_index = get_ref_index() + 1;
 
   for (int i = 0; i < trajectory[0].size(); i++) // Iterate over all trajectory points.
   {
@@ -438,8 +442,7 @@ bool BehaviorPlanner::lane_change_safe(vector<vector<double>>& trajectory, int t
     {
       if (sensor_fusion_[j][6] < 0) continue;
 
-      int time_step = ref_t / 0.02;
-      vector<double> other_car_pos_xy = pred_.predict_location(j, time_step + i); // Predict this car's position at the reference time.
+      vector<double> other_car_pos_xy = pred_.predict_location(j, ref_index + i); // Predict this car's position at the reference time.
       vector<double> other_car_pos_frenet = get_frenet(other_car_pos_xy[0], other_car_pos_xy[1], other_car_pos_xy[4], map_waypoints_x_, map_waypoints_y_);
 
       double other_car_s = other_car_pos_frenet[0];
@@ -502,7 +505,7 @@ double BehaviorPlanner::cost_speed_limit(const vector<vector<double>> &trajector
 
 double BehaviorPlanner::cost_lane_change(int target_lane)
 {
-  int car_lane = (int) get_ref_d() / 4;
+  int car_lane = (int) get_ref_frenet()[1] / 4;
   if (target_lane != car_lane) return 1.0;
   return 0.0;
 }
