@@ -54,7 +54,7 @@ https://www.youtube.com/watch?v=G1UPA72iZE4
 This path planner consists of three main components:
 
 * A [predictor](src/predictor.h) that uses sensor fusion data of the current states of other objects on the road and predicts their future states.
-* A [behavior planner](src/behavior_planner.h) that uses the ego car's current state and trajectory and the predictions of other the objects' future states to decide what the ego car should do next.
+* A [behavior planner](src/behavior_planner.h) that uses the ego car's current state and trajectory and the predictions of the other objects' future states to decide what the ego car should do next.
 * A [trajectory generator](src/trajectory_generator.h) that generates low-jerk trajectories to execute the behavior planner's decision.
 
 #### Inputs and Outputs
