@@ -78,6 +78,8 @@ void Predictor::predict_trajectories(double prediction_horizon, int index)
     string pred_state = gnb_.predict(observation);
     pred_state = "keep";
 
+    vector<vector<double>> pred_trajectory;
+
     if (pred_state == "keep")
     {
       // If the predicted state is "keep", simply assume that the car will continue driving in its lane
@@ -87,33 +89,21 @@ void Predictor::predict_trajectories(double prediction_horizon, int index)
       int car_lane = (int) car_d / 4;
       double car_d_pred = 2 + 4 * (double) car_lane;
 
-      vector<double> next_x_vals;
-      vector<double> next_y_vals;
-      vector<double> next_v_vals;
-      vector<double> next_a_vals;
-      vector<double> next_yaw_vals;
-
       // Instead of using the more complex trajectory generator,
       // generate the path points since the trajectory is so simple.
       int num_path_points = prediction_horizon / 0.02;
       for (int t = 1; t <= num_path_points; t++)
       {
         double car_s_pred = car_s + car_v * t * 0.02;
-        vector<double> car_xy = get_xy(car_s_pred, car_d_pred, map_waypoints_s_, map_waypoints_x_, map_waypoints_y_);
-
-        next_x_vals.push_back(car_xy[0]);
-        next_y_vals.push_back(car_xy[1]);
-        next_v_vals.push_back(car_v);
-        next_a_vals.push_back(0);
+        vector<double> car_xy_pred = get_xy(car_s_pred, car_d_pred, map_waypoints_s_, map_waypoints_x_, map_waypoints_y_);
 
         double car_yaw_pred;
-        if (t == 1) car_yaw_pred = atan2(next_y_vals[t - 1] - car_y, next_x_vals[t - 1] - car_x);
-        else        car_yaw_pred = atan2(next_y_vals[t - 1] - next_y_vals[t - 2], next_x_vals[t - 1] - next_x_vals[t - 2]);
+        if (pred_trajectory.size() == 0) car_yaw_pred = atan2(car_xy_pred[1] - car_y, car_xy_pred[0] - car_x);
+        else                             car_yaw_pred = atan2(car_xy_pred[1] - pred_trajectory[pred_trajectory.size() - 1][1], car_xy_pred[0] - pred_trajectory[pred_trajectory.size() - 1][0]);
 
-        next_yaw_vals.push_back(car_yaw_pred);
+        vector<double> next_pred_point = {car_xy_pred[0], car_xy_pred[1], car_v, 0, car_yaw_pred};
+        pred_trajectory.push_back(next_pred_point);
       }
-
-      vector<vector<double>> pred_trajectory = {next_x_vals, next_y_vals, next_v_vals, next_a_vals, next_yaw_vals};
 
       pred_trajectories_.push_back(pred_trajectory);
     }
@@ -157,11 +147,5 @@ void Predictor::predict_trajectories(double prediction_horizon, int index)
 
 vector<double> Predictor::predict_location(int index, int k)
 {
-  double car_x_pred   = pred_trajectories_[index][0][k];
-  double car_y_pred   = pred_trajectories_[index][1][k];
-  double car_v_pred   = pred_trajectories_[index][2][k];
-  double car_a_pred   = pred_trajectories_[index][3][k];
-  double car_yaw_pred = pred_trajectories_[index][4][k];
-
-  return {car_x_pred, car_y_pred, car_v_pred, car_a_pred, car_yaw_pred};
+  return pred_trajectories_[index][k];
 }

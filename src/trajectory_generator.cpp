@@ -38,7 +38,7 @@ vector<vector<double>> TrajectoryGenerator::generate_trajectory(int target_lane,
                                                                 double car_s,
                                                                 double car_d,
                                                                 double car_yaw,
-                                                                double end_path_v,
+                                                                double ref_speed,
                                                                 vector<double> previous_path_x,
                                                                 vector<double> previous_path_y,
                                                                 int num_prev_path_points_keep,
@@ -90,7 +90,7 @@ vector<vector<double>> TrajectoryGenerator::generate_trajectory(int target_lane,
   // The average of the car's current speed and its target speed determines
   // the s coordinate by which the transition from the current lane to the target lane
   // must be completed.
-  double avg_speed = 0.5 * (end_path_v + target_velocity);
+  double avg_speed = 0.5 * (ref_speed + target_velocity);
 
   //vector<double> spline_point_3 = get_xy(ref_s + time_to_reach_tl * avg_speed, (2 + 4 * (double) target_lane), map_waypoints_s_, map_waypoints_x_, map_waypoints_y_);
   //vector<double> spline_point_4 = get_xy(ref_s + 2 * time_to_reach_tl * avg_speed, (2 + 4 * (double) target_lane), map_waypoints_s_, map_waypoints_x_, map_waypoints_y_);
@@ -123,24 +123,14 @@ vector<vector<double>> TrajectoryGenerator::generate_trajectory(int target_lane,
   // Set the end points for the spline
   spline.set_points(spline_points_x, spline_points_y);
 
-  // Make a list for the actual path points we will generate from this spline
-  vector<double> next_x_vals;
-  vector<double> next_y_vals;
-  vector<double> next_v_vals; // Store velocity at each path point.
-  vector<double> next_a_vals; // Store acceleration at each path point.
-  vector<double> next_yaw_vals; // Store heading at each path point.
+  // Make a list for the actual path points we will generate from this spline.
+  // We will store the path point for each time step as `[x, y, v, a, yaw]`.
+  vector<vector<double>> path;
 
   // Determine how many path points to generate.
   int num_new_path_points;
   if (!full_path) // If we're just "filling up" the points of an existing previous path...
   {
-    // ...add all remaining previous path points to the new path, if any,...
-    for (int i = 0; i < num_prev_path_points_keep; i++)
-    {
-      next_x_vals.push_back(previous_path_x[i]);
-      next_y_vals.push_back(previous_path_y[i]);
-    }
-    // ...and set the number of path points to be generated accordingly.
     num_new_path_points = planning_horizon / 0.02 - num_prev_path_points_keep;
   }
   // Otherwise, generate a full path.
@@ -158,9 +148,6 @@ vector<vector<double>> TrajectoryGenerator::generate_trajectory(int target_lane,
   double target_dist = sqrt(target_x * target_x + target_y * target_y);
   double x_offset = 0; // An offset for the loop below
 
-  // Store the car's speed at the currently considered path planning point here
-  double ref_speed = end_path_v;
-
   // We're filling up as many missing path points such that we always have the required number of path points for the new path
   // corresponding to the planning horizon at 50 path points per second.
   for (int i = 0; i < num_new_path_points; i++)
@@ -175,12 +162,6 @@ vector<vector<double>> TrajectoryGenerator::generate_trajectory(int target_lane,
       // ...with the acceleration being bounded within reasonable values.
       acceleration = max(-9.0, min(9.0, acceleration));
       ref_speed += acceleration * 0.02;
-    }
-
-    if (full_path)
-    {
-      next_v_vals.push_back(ref_speed);
-      next_a_vals.push_back(acceleration);
     }
 
     // Compute the number of segments to subdivide the next 30-meter stretch of the spline into
@@ -201,20 +182,14 @@ vector<vector<double>> TrajectoryGenerator::generate_trajectory(int target_lane,
     next_x += ref_x;
     next_y += ref_y;
 
-    // Push this next path point onto the list
-    next_x_vals.push_back(next_x);
-    next_y_vals.push_back(next_y);
+    double next_yaw;
+    if (path.size() == 0) next_yaw = atan2(next_y - car_y, next_x - car_x);
+    else                  next_yaw = atan2(next_y - path[path.size() - 1][1], next_x - path[path.size() - 1][0]);
 
-    if (full_path)
-    {
-      double next_yaw;
-      if (i == 0) next_yaw = atan2(next_y_vals[i] - car_y, next_x_vals[i - 1] - car_x);
-      else        next_yaw = atan2(next_y_vals[i] - next_y_vals[i - 1], next_x_vals[i] - next_x_vals[i - 1]);
-
-      next_yaw_vals.push_back(next_yaw);
-    }
+    vector<double> next_path_point = {next_x, next_y, ref_speed, acceleration, next_yaw};
+    path.push_back(next_path_point);
   }
 
-  return {next_x_vals, next_y_vals, next_v_vals, next_a_vals, next_yaw_vals};
+  return path;
 }
 

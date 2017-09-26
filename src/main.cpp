@@ -73,12 +73,12 @@ int main() {
   int num_lanes = 3;
   double speed_limit_mph = 50.0;
   double speed_limit_mps = mph2mps(speed_limit_mph); // Speed limit in meters per second
-  double planning_horizon = 1.0; // The time horizon for the path planner in seconds
-  int num_prev_path_points_keep = 50;
+  double planning_horizon = 2.0; // The time horizon for the path planner in seconds
+  int num_prev_path_points_keep = 25;
   double frontal_buffer = 20.0;
   double lateral_buffer = 3.0;
   double speed_tolerance = 0.2;
-  vector<double> cost_weights = {0.64, 0.33, 0.01, 0.02};
+  vector<double> cost_weights = {0.62, 0.33, 0.02, 0.03};
 
   // Instantiate and train the Gaussian Naive Bayes classifier.
   GNB gnb = GNB();
@@ -164,8 +164,13 @@ int main() {
           	                                                 end_path_d,
           	                                                 sensor_fusion);
 
-          	vector<double> next_x_vals = path[0];
-          	vector<double> next_y_vals = path[1];
+          	vector<double> next_x_vals;
+          	vector<double> next_y_vals;
+          	for (int i = 0; i < path.size(); i++)
+          	{
+          	  next_x_vals.push_back(path[i][0]);
+          	  next_y_vals.push_back(path[i][1]);
+          	}
 
           	msgJson["next_x"] = next_x_vals;
           	msgJson["next_y"] = next_y_vals;
