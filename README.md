@@ -13,14 +13,17 @@
 
 This is a primitive path planner for highway driving. It tries to always go as closely to a set speed limit as possible and move around slower traffic on the road if it is safe to do so. This program is written to communicate with the simulator linked below in order to visualize the output trajectories. Check out the video below to watch the planner in action.
 
-
-Its behavioral planning engine is based on a finite state machine (FSM) and is limited to three states: Keeping the car's current lane, making a left lane change and making a right lane change. The planner will generate low-jerk trajectories The program was written to communicate with a simulator that can visualize the behavior
+The master branch currently contains a version of the planner where a planned path always gets executed in its entirety, i.e. the initiation of a new maneuver is only possible after the last path point of the current path the car is following. This obviously leads to a trade-off between longer planning horizons and timely reaction to sudden changes in the environment. The flexible paths branch provides a version of the planner that remedies this limitation by introducing the ability to manually set the number of points of a path that will be executed before the current path can be changed entirely. This allows for both long planning horizons, which lead to better decisions, and almost arbitrarily fast reactions to sudden environmental changes, such as another car suddenly cutting in on the target lane that the ego car is trying to change onto.
 
 ### Demo
 
-Click on the image below to watch a demo of the path planner in action:
+Check out the two videos below to watch a demo of the path planner in action. Click on the image to watch the master branch version of the path planner, or click on the link below the image to watch the version with flexible paths. The latter uses a longer planning horizon and you can see how the last portion of the path suddenly adjusts when the planner changes its decision about the optimal path based on new information about the ego car's surroundings.
 
 [![path_planner_demo](images/path_planner_demo.png)](https://www.youtube.com/watch?v=ZfNJykio03E)
+
+Watch the flexible paths version here:
+
+https://www.youtube.com/watch?v=G1UPA72iZE4
 
 ### Dependencies
 
